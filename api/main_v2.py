@@ -476,9 +476,14 @@ async def set_escalation_policy(body: EscalationPolicyRequest, sub: dict = Depen
 
 @app.post("/voice/inbound", response_class=Response)
 async def voice_inbound(request: Request):
-    form = await request.form()
-    caller = form.get("From", "unknown")
-    call_sid = form.get("CallSid", str(uuid.uuid4()))
+    try:
+        form = await request.form()
+    except Exception:
+        form = {}
+    caller = form.get("From", "unknown") if hasattr(form, "get") else "unknown"
+    call_sid = form.get("CallSid", str(uuid.uuid4())) if hasattr(form, "get") else str(uuid.uuid4())
+    # Use request base URL so it works on Railway, ngrok, or localhost automatically
+    base = str(request.base_url).rstrip("/")
     if session_manager:
         try:
             await session_manager.create_session(session_id=call_sid, caller_phone=caller, channel="voice", bank_id=settings.bank_name)
@@ -486,30 +491,47 @@ async def voice_inbound(request: Request):
             pass
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?><Response>
   <Say voice="Polly.Joanna">This call may be recorded for quality and compliance purposes. You are speaking with an AI assistant from {settings.bank_name}. You may request a human agent at any time by saying agent or pressing zero.</Say>
-  <Gather input="speech dtmf" timeout="5" speechTimeout="3" action="{settings.twilio_webhook_base_url}/voice/gather/{call_sid}" method="POST" language="en-US" enhanced="true">
+  <Gather input="speech dtmf" timeout="8" speechTimeout="auto" action="{base}/voice/gather/{call_sid}" method="POST" language="en-US" enhanced="true">
     <Say voice="Polly.Joanna">How can I help you today?</Say>
   </Gather>
+  <Say voice="Polly.Joanna">I did not hear anything. Please call back. Goodbye.</Say>
 </Response>"""
     return Response(content=twiml, media_type="application/xml")
 
 
 @app.post("/voice/gather/{session_id}", response_class=Response)
 async def voice_gather(session_id: str, request: Request):
-    form = await request.form()
-    user_input = form.get("SpeechResult", "") or form.get("Digits", "")
-    if form.get("Digits") == "0" or "agent" in user_input.lower():
-        return Response(content="""<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">Connecting you with a representative now. Please hold.</Say><Dial><Number>+1YOUR_AGENT_NUMBER</Number></Dial></Response>""", media_type="application/xml")
+    try:
+        form = await request.form()
+    except Exception:
+        form = {}
+    user_input = ""
+    if hasattr(form, "get"):
+        user_input = form.get("SpeechResult", "") or form.get("Digits", "")
+    base = str(request.base_url).rstrip("/")
+    # Human escalation
+    if (hasattr(form, "get") and form.get("Digits") == "0") or "agent" in user_input.lower() or "human" in user_input.lower():
+        twiml = """<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">Connecting you with a representative now. Please hold.</Say><Hangup/></Response>"""
+        return Response(content=twiml, media_type="application/xml")
+    # AI response
     reply = "I can help with your account. What would you like to know?"
-    if orchestrator:
+    if orchestrator and user_input:
         try:
             from agents.base_agent import CustomerContext
             resp = await orchestrator.handle_turn(user_input=user_input, conversation_history=[], customer=CustomerContext(), session_id=session_id, current_agent="customer_service")
             reply = resp.text
             if resp.escalate:
-                return Response(content=f"""<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">{reply}</Say><Dial><Number>+1YOUR_AGENT_NUMBER</Number></Dial></Response>""", media_type="application/xml")
+                twiml = f"""<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">{reply}</Say><Hangup/></Response>"""
+                return Response(content=twiml, media_type="application/xml")
         except Exception as e:
             logger.error(f"Voice error: {e}")
-    twiml = f"""<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech dtmf" timeout="5" speechTimeout="3" action="{settings.twilio_webhook_base_url}/voice/gather/{session_id}" method="POST" language="en-US" enhanced="true"><Say voice="Polly.Joanna">{reply}</Say></Gather></Response>"""
+            reply = "I am having a technical issue. Please call back shortly."
+    twiml = f"""<?xml version="1.0" encoding="UTF-8"?><Response>
+  <Gather input="speech dtmf" timeout="8" speechTimeout="auto" action="{base}/voice/gather/{session_id}" method="POST" language="en-US" enhanced="true">
+    <Say voice="Polly.Joanna">{reply}</Say>
+  </Gather>
+  <Say voice="Polly.Joanna">Thank you for calling {settings.bank_name}. Goodbye.</Say>
+</Response>"""
     return Response(content=twiml, media_type="application/xml")
 
 
