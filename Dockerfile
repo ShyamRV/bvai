@@ -28,10 +28,4 @@ USER bankvoice
 EXPOSE 8000
 
 # Uvicorn: 2 workers, optimized for voice webhook latency
-CMD ["uvicorn", "api.main:app", \
-     "--host", "0.0.0.0", \
-     "--port", "8000", \
-     "--workers", "2", \
-     "--loop", "asyncio", \
-     "--log-level", "info", \
-     "--access-log"]
+CMD uvicorn api.main_v2:app --host 0.0.0.0 --port ${PORT:-8000}
