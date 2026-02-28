@@ -499,7 +499,7 @@ async def voice_inbound(request: Request):
     return Response(content=twiml, media_type="application/xml")
 
 
-@app.post("/voice/gather/{session_id}", response_class=Response)
+@app.api_route("/voice/gather/{session_id}", methods=["GET", "POST"], response_class=Response)
 async def voice_gather(session_id: str, request: Request):
     try:
         form = await request.form()
