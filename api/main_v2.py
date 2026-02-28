@@ -501,13 +501,15 @@ async def voice_inbound(request: Request):
 
 @app.api_route("/voice/gather/{session_id}", methods=["GET", "POST"], response_class=Response)
 async def voice_gather(session_id: str, request: Request):
+    # Twilio sends GET with query params OR POST with form data - handle both
+    user_input = ""
     try:
         form = await request.form()
-    except Exception:
-        form = {}
-    user_input = ""
-    if hasattr(form, "get"):
         user_input = form.get("SpeechResult", "") or form.get("Digits", "")
+    except Exception:
+        pass
+    if not user_input:
+        user_input = request.query_params.get("SpeechResult", "") or request.query_params.get("Digits", "")
     base = str(request.base_url).rstrip("/")
     # Human escalation
     if (hasattr(form, "get") and form.get("Digits") == "0") or "agent" in user_input.lower() or "human" in user_input.lower():
