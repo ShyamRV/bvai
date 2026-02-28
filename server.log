@@ -1,0 +1,37 @@
+INFO:     Will watch for changes in these directories: ['C:\\Users\\shyam\\OneDrive\\Documents\\fetch.ai\\BankVoiceAI_v2_Free_Stack\\BankVoiceAI\\bankvoiceai']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [12764] using WatchFiles
+INFO:     Started server process [2416]
+INFO:     Waiting for application startup.
+2026-02-28 17:56:29,528 api.main_v2 INFO BankVoiceAI v2 starting...
+2026-02-28 17:56:30,240 payment_gateway.fet_payment_gateway INFO Payment Gateway Agent initialized
+  Address : agent1qt69k6dn9qfzmn7hjcnu4ungulhnfwhnnghdqqducpcq2t2dgq9gxgd6ks7
+  Wallet  : fetch1PASTE_YOUR_WALLET_ADDRESS
+  Network : testnet
+2026-02-28 17:56:30,324 api.main_v2 INFO BankVoiceAI v2 ready. Payment gateway online.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'test_pilot.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+2026-02-28 18:01:28,602 api.main_v2 INFO BankVoiceAI v2 shutting down.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [2416]
+INFO:     Started server process [39264]
+INFO:     Waiting for application startup.
+2026-02-28 18:01:30,130 api.main_v2 INFO BankVoiceAI v2 starting...
+2026-02-28 18:01:31,238 payment_gateway.fet_payment_gateway INFO Payment Gateway Agent initialized
+  Address : agent1qt69k6dn9qfzmn7hjcnu4ungulhnfwhnnghdqqducpcq2t2dgq9gxgd6ks7
+  Wallet  : fetch1PASTE_YOUR_WALLET_ADDRESS
+  Network : testnet
+2026-02-28 18:01:31,334 api.main_v2 INFO BankVoiceAI v2 ready. Payment gateway online.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'api\main_v2.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+2026-02-28 18:41:30,155 api.main_v2 INFO BankVoiceAI v2 shutting down.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [39264]
+INFO:     Started server process [35616]
+INFO:     Waiting for application startup.
+2026-02-28 18:41:31,421 api.main_v2 INFO BankVoiceAI v2 starting...
+2026-02-28 18:41:34,121 api.main_v2 WARNING Redis unavailable: Error 11001 connecting to redis:6379. getaddrinfo failed.

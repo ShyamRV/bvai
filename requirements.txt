@@ -1,0 +1,51 @@
+# BankVoiceAI - Core Dependencies (February 2026)
+# ALL FREE TIERS — $0 to run
+
+# ── Web Framework ────────────────────────────────────────────────
+fastapi==0.115.6
+uvicorn[standard]==0.30.6
+pydantic==2.8.2
+pydantic-settings==2.7.0
+python-multipart==0.0.20
+python-dotenv==1.0.1
+
+# ── Fetch.ai uAgents (FREE — open source) ────────────────────────
+uagents==0.14.0           # Latest stable 2025/2026
+uagents-ai-engine==0.4.0  # Fetch.ai AI Engine integration
+
+# ── ASI:ONE LLM (FREE tier: 100k tokens/day) ─────────────────────
+httpx==0.28.1
+tenacity==9.0.0
+
+# ── OpenAI Whisper STT ($5 free credit, ~800 mins) ───────────────
+openai==1.59.9
+
+# ── Twilio ($15 free credit on trial) ────────────────────────────
+twilio==9.4.3
+
+# ── Database (PostgreSQL — free on Supabase/Railway/Render) ──────
+asyncpg==0.30.0
+sqlalchemy[asyncio]==2.0.37
+alembic==1.14.0
+
+# ── Redis (free on Upstash — 10K commands/day free) ──────────────
+redis[asyncio]==5.2.1
+
+# ── Auth ─────────────────────────────────────────────────────────
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+cryptography==44.0.0
+
+# ── Monitoring (all self-hosted free) ────────────────────────────
+prometheus-client==0.21.1
+structlog==25.1.0
+
+# ── Utilities ────────────────────────────────────────────────────
+phonenumbers==8.13.52
+langdetect==1.0.9
+aiofiles==24.1.0
+
+# ── Testing (free) ───────────────────────────────────────────────
+pytest==8.3.4
+pytest-asyncio==0.25.1
+httpx==0.28.1
