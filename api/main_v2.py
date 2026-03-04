@@ -33,7 +33,9 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 
 import redis.asyncio as aioredis
-from fastapi import FastAPI, Request, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, Request, HTTPException, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -151,6 +153,14 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs",
 )
+
+import os
+if os.path.exists("api/static"):
+    app.mount("/static", StaticFiles(directory="api/static"), name="static")
+
+@app.get("/")
+async def dashboard():
+    return FileResponse("api/static/index.html")
 
 app.add_middleware(
     CORSMiddleware,
