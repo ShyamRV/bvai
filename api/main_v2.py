@@ -586,7 +586,8 @@ async def toggle_agent(
 
 @app.post("/api/v2/agents/{agent_name}/test")
 async def test_agent(agent_name: str, request: Request, sub: dict = Depends(get_subscription)):
-    if agent_name not in sub.get("agents_enabled", []):
+    agents = sub.agents_enabled if hasattr(sub, "agents_enabled") else sub.get("agents_enabled", [])
+    if agent_name not in agents:
         raise HTTPException(403, f"Agent '{agent_name}' not in your plan.")
     body = await request.json()
     message = body.get("message", "Hello")
@@ -599,7 +600,7 @@ async def test_agent(agent_name: str, request: Request, sub: dict = Depends(get_
                 customer=CustomerContext(), session_id=str(uuid.uuid4()),
                 current_agent=agent_name,
             )
-            return {"agent": agent_name, "response": response.text}
+            return {"agent": agent_name, "response": response.text, "escalate": response.escalate}
         except Exception as e:
             return {"agent": agent_name, "response": f"[Error: {e}]"}
     return {"agent": agent_name, "response": f"[Demo] {agent_name} received: {message}"}
