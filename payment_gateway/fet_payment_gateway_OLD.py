@@ -151,13 +151,6 @@ class FETPayment:
     plan: SubscriptionPlan
     status: PaymentStatus = PaymentStatus.PENDING
 
-
-    def days_until_expiry(self) -> int:
-        expires = datetime.fromisoformat(self.expires_at)
-        if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
-        return max(0, (expires - datetime.now(timezone.utc)).days)
-
     def to_dict(self) -> dict:
         d = asdict(self)
         d["amount_fet"] = str(self.amount_fet)
@@ -197,20 +190,11 @@ class Subscription:
             return 999999
         return max(0, daily_limit - self.calls_today)
 
-
-    def days_until_expiry(self) -> int:
-        expires = datetime.fromisoformat(self.expires_at)
-        if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
-        return max(0, (expires - datetime.now(timezone.utc)).days)
-
     def to_dict(self) -> dict:
         d = asdict(self)
         d["plan"] = self.plan.value
         d["status"] = self.status.value
         d["is_active"] = self.is_active()
-        d["days_until_expiry"] = self.days_until_expiry()
-        d["calls_remaining_today"] = self.calls_remaining_today()
         d["calls_remaining_today"] = self.calls_remaining_today()
         d["plan_config"] = {
             k: str(v) if isinstance(v, Decimal) else v
@@ -440,7 +424,6 @@ class FETPaymentGatewayAgent:
         wallet_address: str,
         seed: str,
         redis_client=None,
-        db_url=None,
         db_session=None,
         use_mainnet: bool = False,
     ):
@@ -568,7 +551,7 @@ class FETPaymentGatewayAgent:
                 sub.metadata["refund_requested_at"] = datetime.now(timezone.utc).isoformat()
                 sub.metadata["refund_tx"] = msg.tx_hash
                 sub.metadata["refund_reason"] = msg.reason
-                await self._persist(sub)
+                await self._persist_subscription(sub)
 
             await ctx.send(sender, PaymentConfirmation(
                 tenant_id=msg.tenant_id,
@@ -604,7 +587,7 @@ class FETPaymentGatewayAgent:
             api_keys=[self._generate_api_key(payment.bank_tenant_id)],
         )
         self.subscriptions[payment.bank_tenant_id] = sub
-        await self._persist(sub)
+        await self._persist_subscription(sub)
         return sub
 
     async def _change_plan(self, tenant_id: str, new_plan: SubscriptionPlan):
@@ -613,7 +596,7 @@ class FETPaymentGatewayAgent:
             plan_cfg = PLAN_CONFIG[new_plan]
             sub.plan = new_plan
             sub.agents_enabled = plan_cfg["agents_enabled"]
-            await self._persist(sub)
+            await self._persist_subscription(sub)
 
     async def _persist_subscription(self, sub: Subscription):
         """Persist subscription to Redis cache and PostgreSQL."""
@@ -629,9 +612,8 @@ class FETPaymentGatewayAgent:
 
     def _generate_api_key(self, tenant_id: str) -> str:
         """Generate a secure tenant API key."""
-        import uuid
         secret = os.getenv("API_KEY_SECRET", "bankvoiceai-key-secret")
-        raw = f"{tenant_id}:{time.time()}:{secret}:{uuid.uuid4()}"
+        raw = f"{tenant_id}:{time.time()}:{secret}"
         return "bvai_" + hmac.new(
             secret.encode(), raw.encode(), hashlib.sha256
         ).hexdigest()[:40]
@@ -686,90 +668,9 @@ class FETPaymentGatewayAgent:
             api_keys=[self._generate_api_key(tenant_id)],
         )
         self.subscriptions[tenant_id] = sub
-        await self._persist(sub)
+        await self._persist_subscription(sub)
         logger.info(f"Pilot subscription created: {tenant_id} | {bank_name}")
         return sub
 
-
-    async def check_agent_access(self, api_key, agent_name):
-        sub = await self.get_subscription_by_api_key(api_key)
-        if not sub:
-            return False, 'Invalid API key', None
-        if not sub.is_active():
-            return False, 'Subscription expired or inactive. Renew to continue.', sub
-        if agent_name not in sub.agents_enabled:
-            return False, f"Agent '{agent_name}' not in your plan. Upgrade to access.", sub
-        if sub.calls_remaining_today() <= 0:
-            return False, 'Daily call limit reached.', sub
-        return True, 'OK', sub
-
-    async def get_subscription_by_api_key(self, api_key):
-        for sub in self.subscriptions.values():
-            if api_key in sub.api_keys:
-                return sub
-        return None
-
-    async def run_renewal_check(self):
-        now = datetime.now(timezone.utc)
-        for sub in list(self.subscriptions.values()):
-            if sub.status not in (SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL):
-                continue
-            days_left = sub.days_until_expiry()
-            if days_left == 0:
-                sub.status = SubscriptionStatus.EXPIRED
-            elif days_left <= 7:
-                sub.metadata[f'renewal_reminder_{now.date()}'] = f'Expires in {days_left} days'
-
-    async def _persist(self, sub):
-        if self.redis:
-            try:
-                import json
-                data = {
-                    'tenant_id': sub.tenant_id, 'bank_name': sub.bank_name,
-                    'plan': sub.plan.value, 'status': sub.status.value,
-                    'started_at': sub.started_at, 'expires_at': sub.expires_at,
-                    'last_payment_hash': sub.last_payment_hash,
-                    'last_payment_at': sub.last_payment_at,
-                    'agents_enabled': sub.agents_enabled,
-                    'compliance_mode': sub.compliance_mode,
-                    'webhook_url': sub.webhook_url,
-                    'api_keys': sub.api_keys,
-                    'calls_today': sub.calls_today,
-                    'calls_this_month': sub.calls_this_month,
-                    'metadata': sub.metadata,
-                }
-                await self.redis.setex(
-                    f'subscription:{sub.tenant_id}', 86400 * 35, json.dumps(data)
-                )
-                for key in sub.api_keys:
-                    await self.redis.setex(f'apikey:{key}', 86400 * 35, sub.tenant_id)
-            except Exception:
-                pass
-
-    async def increment_call_count(self, tenant_id):
-        sub = self.subscriptions.get(tenant_id)
-        if sub:
-            sub.calls_today += 1
-            sub.calls_this_month += 1
-
     def run(self):
         self.uagent.run()
-
-def _sub_from_dict(d: dict):
-    return Subscription(
-        tenant_id=d['tenant_id'],
-        bank_name=d['bank_name'],
-        plan=SubscriptionPlan(d['plan']),
-        status=SubscriptionStatus(d['status']),
-        started_at=d['started_at'],
-        expires_at=d['expires_at'],
-        last_payment_hash=d.get('last_payment_hash'),
-        last_payment_at=d.get('last_payment_at'),
-        agents_enabled=d.get('agents_enabled', []),
-        compliance_mode=d.get('compliance_mode', 'strict'),
-        webhook_url=d.get('webhook_url'),
-        api_keys=d.get('api_keys', []),
-        calls_today=d.get('calls_today', 0),
-        calls_this_month=d.get('calls_this_month', 0),
-        metadata=d.get('metadata', {}),
-    )
