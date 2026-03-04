@@ -237,7 +237,7 @@ async def health():
     return {
         "status": "ok",
         "service": "BankVoiceAI",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "payment_gateway": payment_gateway is not None,
         "network": "mainnet" if settings.fetch_use_mainnet else "testnet",
     }
@@ -581,6 +581,28 @@ async def toggle_agent(
 # ═══════════════════════════════════════════════════════════════════════════════
 # ANALYTICS
 # ═══════════════════════════════════════════════════════════════════════════════
+
+
+
+@app.post("/api/v2/agents/{agent_name}/test")
+async def test_agent(agent_name: str, request: Request, sub: dict = Depends(get_subscription)):
+    if agent_name not in sub.get("agents_enabled", []):
+        raise HTTPException(403, f"Agent '{agent_name}' not in your plan.")
+    body = await request.json()
+    message = body.get("message", "Hello")
+    if orchestrator:
+        try:
+            from agents.base_agent import CustomerContext
+            import uuid
+            response = await orchestrator.handle_turn(
+                user_input=message, conversation_history=[],
+                customer=CustomerContext(), session_id=str(uuid.uuid4()),
+                current_agent=agent_name,
+            )
+            return {"agent": agent_name, "response": response.text}
+        except Exception as e:
+            return {"agent": agent_name, "response": f"[Error: {e}]"}
+    return {"agent": agent_name, "response": f"[Demo] {agent_name} received: {message}"}
 
 @app.get("/api/v2/analytics")
 async def get_analytics(sub=Depends(get_subscription), days: int = 7):
