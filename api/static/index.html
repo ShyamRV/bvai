@@ -2493,7 +2493,12 @@ async function gwVerify() {
       body:JSON.stringify({tx_hash:hash, tenant_id:GW.tenantId})
     });
     const d=await r.json();
-    if (!r.ok) throw new Error(d.detail||'Verification failed. Check your tx hash and memo.');
+    if (!r.ok) {
+      const errMsg = d.detail || d.message || d.error || 
+        (typeof d === 'string' ? d : null) ||
+        'Verification failed. Check your tx hash and memo match exactly.';
+      throw new Error(errMsg);
+    }
 
     GW.apiKey=d.api_key; GW.sub=d.subscription;
     const sub=d.subscription;
@@ -2507,8 +2512,18 @@ async function gwVerify() {
     gwGoTo(4);
     showToast('🎉 Subscription activated!','success');
   } catch(e) {
-    gwShowErr('gw-s3-err',e.message);
-    if(txt)txt.textContent='Verification failed — please check your tx hash';
+    let errTxt = e.message || 'Verification failed';
+    if (errTxt.includes('[object') || errTxt.includes('{')) {
+      errTxt = 'Verification failed. Check tx hash is correct and memo matches exactly.';
+    } else if (errTxt.toLowerCase().includes('already') || errTxt.toLowerCase().includes('exist')) {
+      errTxt = '⚠ This TX hash was already used. Send a NEW transaction with memo: BANKVOICEAI|' + GW.tenantId + '|' + GW.plan;
+    } else if (errTxt.toLowerCase().includes('memo')) {
+      errTxt = '⚠ Memo mismatch. Required memo: BANKVOICEAI|' + GW.tenantId + '|' + GW.plan;
+    } else if (errTxt.toLowerCase().includes('amount') || errTxt.toLowerCase().includes('insufficient')) {
+      errTxt = '⚠ Wrong amount sent. Required: ' + PLAN_CFG[GW.plan].fet + ' FET';
+    }
+    gwShowErr('gw-s3-err', errTxt);
+    if(txt) txt.textContent = 'Verification failed — check tx hash and memo';
     startGwPoll();
   } finally {
     btn.disabled=false; btn.innerHTML='Verify';
