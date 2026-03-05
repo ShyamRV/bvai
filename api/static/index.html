@@ -9,25 +9,28 @@
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #050A14;
-  --surface: #0A1628;
-  --surface2: #0F1E35;
-  --surface3: #142445;
-  --border: rgba(64,120,220,0.15);
-  --border-bright: rgba(64,120,220,0.4);
-  --accent: #2B7FFF;
-  --accent-glow: rgba(43,127,255,0.3);
-  --accent2: #00E5B4;
-  --accent2-glow: rgba(0,229,180,0.2);
-  --danger: #FF4757;
-  --warning: #FFA94D;
-  --text: #E8F0FF;
-  --text2: #8BA3CC;
-  --text3: #4A6080;
-  --fet: #6B3FA0;
-  --fet-light: #A855F7;
-  --fet-glow: rgba(168,85,247,0.25);
-  --gold: #F5C842;
+  --bg:       #020810;
+  --surface:  #060E1E;
+  --surface2: #0A1628;
+  --surface3: #0F1F38;
+  --border:        rgba(48,100,220,0.13);
+  --border-bright: rgba(48,100,220,0.36);
+  --accent:      #3B82F6;
+  --accent-glow: rgba(59,130,246,0.28);
+  --accent2:     #10D9A0;
+  --accent2-glow:rgba(16,217,160,0.2);
+  --danger:  #F43F5E;
+  --warning: #F59E0B;
+  --text:    #EEF4FF;
+  --text2:   #7E9CC4;
+  --text3:   #3D5470;
+  --fet:      #7C3AED;
+  --fet-light:#A78BFA;
+  --fet-glow: rgba(167,139,250,0.22);
+  --gold:     #FBBF24;
+  --radius:   14px;
+  --radius-sm:9px;
+  --transition: 0.18s cubic-bezier(0.4,0,0.2,1);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -46,11 +49,22 @@ body::before {
   position: fixed;
   inset: 0;
   background-image:
-    linear-gradient(rgba(43,127,255,0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(43,127,255,0.03) 1px, transparent 1px);
-  background-size: 40px 40px;
+    linear-gradient(rgba(59,130,246,0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59,130,246,0.028) 1px, transparent 1px);
+  background-size: 44px 44px;
   pointer-events: none;
   z-index: 0;
+}
+
+/* Subtle noise texture for depth */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.025'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.4;
 }
 
 /* Glow orbs */
@@ -102,16 +116,18 @@ body::after {
 }
 
 .logo-icon {
-  width: 36px;
-  height: 36px;
-  background: linear-gradient(135deg, var(--accent), #6B3FA0);
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  box-shadow: 0 0 20px var(--accent-glow);
+  width: 38px; height: 38px;
+  background: linear-gradient(135deg, var(--accent), var(--fet));
+  border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 19px;
+  box-shadow: 0 0 20px var(--accent-glow), 0 0 40px rgba(124,58,237,0.12);
   flex-shrink: 0;
+  animation: logoPulse 4s ease-in-out infinite;
+}
+@keyframes logoPulse {
+  0%,100% { box-shadow: 0 0 20px var(--accent-glow), 0 0 40px rgba(124,58,237,0.12); }
+  50%      { box-shadow: 0 0 28px rgba(59,130,246,0.4), 0 0 52px rgba(124,58,237,0.2); }
 }
 
 .logo-text {
@@ -850,13 +866,14 @@ nav {
 
 .plan-card {
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px 16px;
+  border-radius: var(--radius);
+  padding: 22px 18px;
   text-align: center;
   cursor: pointer;
-  transition: all 0.25s;
+  transition: all var(--transition);
   position: relative;
   overflow: hidden;
+  background: linear-gradient(145deg, var(--surface) 0%, rgba(6,14,30,0.95) 100%);
 }
 
 .plan-card:hover {
@@ -1060,16 +1077,30 @@ nav {
 
 /* ─── Scrollbar ──────────────────────────────────────────── */
 
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.25); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(59,130,246,0.45); }
+
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Selection */
+::selection { background: rgba(59,130,246,0.28); color: var(--text); }
 
 /* ─── Animations ─────────────────────────────────────────── */
 
 @keyframes slideIn {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .section.active > * {
@@ -1096,13 +1127,14 @@ nav {
 .modal-overlay.open { display: flex; }
 
 .modal {
-  background: var(--surface);
-  border: 1px solid var(--border-bright);
-  border-radius: 16px;
+  background: linear-gradient(145deg, var(--surface) 0%, var(--bg) 100%);
+  border: 1px solid rgba(59,130,246,0.28);
+  border-radius: 18px;
   padding: 28px;
   max-width: 500px;
   width: 90%;
   animation: slideIn 0.25s ease;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.6), 0 0 0 0.5px rgba(255,255,255,0.04) inset;
 }
 
 .modal-title {
@@ -1159,8 +1191,8 @@ nav {
   font-weight: 500;
 }
 
-.tag-green { background: rgba(0,229,180,0.12); color: var(--accent2); }
-.tag-blue { background: rgba(43,127,255,0.12); color: var(--accent); }
+.tag-green { background: rgba(16,217,160,0.1); color: var(--accent2); border: 1px solid rgba(16,217,160,0.2); }
+.tag-blue { background: rgba(59,130,246,0.1); color: var(--accent); border: 1px solid rgba(59,130,246,0.2); }
 .tag-red { background: rgba(255,71,87,0.12); color: var(--danger); }
 .tag-purple { background: var(--fet-glow); color: var(--fet-light); }
 .tag-gold { background: rgba(245,200,66,0.12); color: var(--gold); }
@@ -1168,11 +1200,12 @@ nav {
 /* ─── Progress bar ───────────────────────────────────────── */
 
 .progress-track {
-  height: 4px;
+  height: 5px;
   background: var(--surface3);
-  border-radius: 2px;
+  border-radius: 3px;
   overflow: hidden;
   margin-top: 8px;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.3);
 }
 
 .progress-fill {
@@ -1226,6 +1259,31 @@ nav {
 .gw-plan-opt .gpfeats { font-size:10px;color:var(--text2);list-style:none;display:flex;flex-direction:column;gap:3px; }
 .gw-plan-opt .gpfeats li::before { content:'→ ';color:var(--accent);font-size:9px; }
 @keyframes spin360 { to { transform:rotate(360deg); } }
+
+/* Loading skeleton */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface2) 25%, var(--surface3) 50%, var(--surface2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Glow on active chain status */
+.chain-status {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--text3);
+}
+
+/* Divider */
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+  margin: 16px 0;
+}
 </style>
 </head>
 <body>
@@ -2003,7 +2061,7 @@ nav {
 
 <!-- ─── Payment Gateway Modal ─────────────────────────────── -->
 <div class="modal-overlay" id="payModal" style="align-items:center;justify-content:center;">
-  <div class="modal" style="max-width:540px;padding:0;overflow:hidden;max-height:92vh;overflow-y:auto;">
+  <div class="modal" style="max-width:540px;padding:0;overflow:hidden;max-height:92vh;overflow-y:auto;background:linear-gradient(170deg,var(--surface) 0%,rgba(2,8,16,0.98) 100%);border:1px solid rgba(59,130,246,0.3);">
 
     <div style="padding:22px 26px 0;display:flex;align-items:flex-start;justify-content:space-between;">
       <div>
@@ -2013,7 +2071,7 @@ nav {
       <button onclick="closePayModal()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;line-height:1;padding:4px;">✕</button>
     </div>
 
-    <div style="display:flex;align-items:center;justify-content:center;gap:0;padding:14px 26px 0;max-width:380px;margin:0 auto;">
+    <div style="display:flex;align-items:center;justify-content:center;gap:0;padding:18px 26px 0;max-width:400px;margin:0 auto;">
       <div class="gw-dot" id="gwd1">1</div>
       <div class="gw-line" id="gwl1"></div>
       <div class="gw-dot" id="gwd2">2</div>
@@ -2022,7 +2080,7 @@ nav {
       <div class="gw-line" id="gwl3"></div>
       <div class="gw-dot" id="gwd4">4</div>
     </div>
-    <div style="display:flex;justify-content:space-between;padding:4px 46px 0;font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--text3);max-width:380px;margin:0 auto;">
+    <div style="display:flex;justify-content:space-between;padding:5px 38px 0;font-size:9px;letter-spacing:0.6px;text-transform:uppercase;font-family:'JetBrains Mono',monospace;color:var(--text3);max-width:400px;margin:0 auto;">
       <span>Details</span><span>Send FET</span><span>Confirm</span><span>Done</span>
     </div>
 
@@ -2390,12 +2448,29 @@ async function gwSubmitStep1() {
     const r = await fetch(API_BASE + '/api/v2/payments/initiate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenant_id: tenantId, plan: GW.plan })
+      body: JSON.stringify({ tenant_id: tenantId, bank_name: bankName, plan: GW.plan })
     });
     const d = await r.json();
-    if (r.ok && (d.wallet_address || d.wallet)) {
-      wallet = d.wallet_address || d.wallet;
+    console.log('Initiate response:', JSON.stringify(d));
+    if (r.ok) {
+      // Handle both response shapes
+      const pi = d.payment_instructions || {};
+      wallet = pi.send_to_wallet || d.wallet_address || d.wallet || wallet;
       GW.details = d;
+      // Pilot plan — instant activation, no payment needed
+      if (d.type === 'pilot' && d.api_key) {
+        GW.apiKey = d.api_key;
+        GW.sub = { plan: 'pilot', agents_enabled: d.agents_enabled || [], expires_at: d.expires_at, days_until_expiry: 30 };
+        document.getElementById('gw-s4-bank').textContent    = bankName;
+        document.getElementById('gw-s4-plan').textContent    = 'PILOT';
+        document.getElementById('gw-s4-agents').textContent  = (d.agents_enabled||[]).length + ' agents';
+        document.getElementById('gw-s4-exp').textContent     = d.expires_at ? new Date(d.expires_at).toLocaleDateString() : '30 days';
+        document.getElementById('gw-s4-key').textContent     = d.api_key;
+        btn.disabled = false; btn.innerHTML = 'Continue → Get Payment Details';
+        gwGoTo(4);
+        showToast('🎉 Pilot plan activated instantly!', 'success');
+        return;
+      }
     }
     // If API fails, we still proceed with known wallet + client-side memo
   } catch(e) {
@@ -2490,7 +2565,7 @@ async function gwVerify() {
   try {
     const r=await fetch(API_BASE+'/api/v2/payments/verify',{
       method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({tx_hash:hash, tenant_id:GW.tenantId})
+      body:JSON.stringify({tx_hash:hash, tenant_id:GW.tenantId, plan:GW.plan||'starter', bank_name:GW.bankName||GW.tenantId})
     });
     const d=await r.json();
     if (!r.ok) {
@@ -2500,8 +2575,15 @@ async function gwVerify() {
       throw new Error(errMsg);
     }
 
-    GW.apiKey=d.api_key; GW.sub=d.subscription;
-    const sub=d.subscription;
+    GW.apiKey = d.api_key;
+    // API returns subscription inline (not nested)
+    const sub = d.subscription || {
+      plan:             d.plan || GW.plan,
+      agents_enabled:   d.agents_enabled || [],
+      expires_at:       d.expires_at || null,
+      days_until_expiry: 30
+    };
+    GW.sub = sub;
     const exp=sub?.expires_at?new Date(sub.expires_at).toLocaleDateString():'—';
     document.getElementById('gw-s4-bank').textContent=GW.bankName||GW.tenantId;
     document.getElementById('gw-s4-plan').textContent=(sub?.plan||'').toUpperCase();
