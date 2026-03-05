@@ -919,7 +919,7 @@ input:disabled+.toggle-track{opacity:0.35;cursor:not-allowed;}
 
     <div class="hero">
       <div class="hero-eyebrow">
-        🏛 Fetch.ai Innovation Lab · ASI:One LLM · FFIEC Compliant
+        🏛 Fetch.ai · ASI:One LLM · FFIEC Compliant
       </div>
       <h1>
         The Voice AI Platform<br>
@@ -1004,7 +1004,7 @@ input:disabled+.toggle-track{opacity:0.35;cursor:not-allowed;}
     <div class="trust-sep"></div>
     <div class="trust-item">🇺🇸 US-Hosted Infrastructure</div>
     <div class="trust-sep"></div>
-    <div class="trust-item">⬡ Fetch.ai Innovation Lab</div>
+    <div class="trust-item">⬡ Fetch.ai</div>
   </div>
 </div>
 
@@ -1476,8 +1476,8 @@ input:disabled+.toggle-track{opacity:0.35;cursor:not-allowed;}
           <table class="data-table">
             <thead><tr><th>Version</th><th>Changed By</th><th>Change Summary</th><th>Timestamp</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
-              <tr><td class="mono" style="color:var(--green);">v3 (current)</td><td>admin@bank.com</td><td>Added SSL cert · Updated read user</td><td class="mono" style="color:var(--t3);">2026-03-04 08:22 EST</td><td><span class="tag tag-green">Active</span></td><td>—</td></tr>
-              <tr><td class="mono">v2</td><td>admin@bank.com</td><td>Schema mapper — added loan_applications</td><td class="mono" style="color:var(--t3);">2026-02-18 14:45 EST</td><td><span class="tag tag-gray">Archived</span></td><td><button class="btn btn-ghost btn-sm" onclick="toast('Rolled back to v2 configuration. Agents restarting...','info')">↩ Rollback</button></td></tr>
+              <tr><td class="mono" style="color:var(--green);">v3 (current)</td><td><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="e180858c888fa183808f8acf828e8c">[email&#160;protected]</a></td><td>Added SSL cert · Updated read user</td><td class="mono" style="color:var(--t3);">2026-03-04 08:22 EST</td><td><span class="tag tag-green">Active</span></td><td>—</td></tr>
+              <tr><td class="mono">v2</td><td><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="7716131a1e19371516191c5914181a">[email&#160;protected]</a></td><td>Schema mapper — added loan_applications</td><td class="mono" style="color:var(--t3);">2026-02-18 14:45 EST</td><td><span class="tag tag-gray">Archived</span></td><td><button class="btn btn-ghost btn-sm" onclick="toast('Rolled back to v2 configuration. Agents restarting...','info')">↩ Rollback</button></td></tr>
               <tr><td class="mono">v1</td><td>system</td><td>Initial connection — core banking only</td><td class="mono" style="color:var(--t3);">2026-02-04 09:10 EST</td><td><span class="tag tag-gray">Archived</span></td><td><button class="btn btn-ghost btn-sm" onclick="toast('Rolled back to v1 configuration.','info')">↩ Rollback</button></td></tr>
             </tbody>
           </table>
@@ -1845,7 +1845,7 @@ input:disabled+.toggle-track{opacity:0.35;cursor:not-allowed;}
 <!-- Toast container -->
 <div class="toast-container" id="toast-wrap"></div>
 
-<script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
 // ════════════════════════════════════════════════════════════
 // BANKVOICEAI ENTERPRISE PORTAL — v3.0.0
 // Bloomberg Terminal × JPMorgan Chase aesthetic
@@ -2516,14 +2516,4 @@ document.addEventListener('DOMContentLoaded', () => {
   const key = sessionStorage.getItem('bvai_key');
   if (tid && key) {
     S.tenantId = tid; S.apiKey = key;
-    apiFetch(`/api/v2/subscription/status?tenant_id=${encodeURIComponent(tid)}`, {
-      headers: { 'X-BankVoiceAI-Key': key }
-    }).then(r=>r.json()).then(d=>{ if(d.plan) loadDash(tid, key, d); }).catch(()=>{});
-  }
-  // URL params
-  const p = new URLSearchParams(window.location.search);
-  if (p.get('plan')) openGateway(p.get('plan'));
-});
-</script>
-</body>
-</html>
+    apiFetch(`/api/v2/subsc
