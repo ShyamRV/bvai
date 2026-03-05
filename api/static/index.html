@@ -2376,7 +2376,8 @@ async function gwSubmitStep1() {
       body: JSON.stringify({tenant_id:tenantId, plan:GW.plan})
     });
     const d = await r.json();
-    if (!r.ok) throw new Error(d.detail||'Failed to initiate payment');
+    console.log('Payment initiate response:', JSON.stringify(d));
+    if (!r.ok) throw new Error(d.detail || d.message || d.error || JSON.stringify(d) || 'Failed to initiate payment');
     GW.details=d;
 
     const wallet = d.wallet_address||d.wallet||'fetch1jw4wtxc328zyw5w2j7nmjlem3n446u0t59aksa';
@@ -2405,7 +2406,8 @@ async function gwSubmitStep1() {
 
     gwGoTo(2);
   } catch(e) {
-    gwShowErr('gw-s1-err', e.message);
+    const msg = e.message||String(e);
+    gwShowErr('gw-s1-err', msg.includes('{')?'Tenant ID already exists. Try a different tenant ID (e.g. add _001)':msg);
   } finally {
     btn.disabled=false; btn.innerHTML='Continue → Get Payment Details';
   }
