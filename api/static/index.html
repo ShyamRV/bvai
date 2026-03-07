@@ -1880,6 +1880,7 @@ let S = {
 // PAGE NAVIGATION
 // ════════════════════════════════════════════════════════════
 function showLanding(){ pg('pg-landing'); }
+function showSignup(){ openGateway(); }
 function showLogin()  { pg('pg-login'); }
 function showDash()   { pg('pg-dash'); }
 
@@ -2515,4 +2516,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const key = sessionStorage.getItem('bvai_key');
   if (tid && key) {
     S.tenantId = tid; S.apiKey = key;
-    apiFetch(`/api/v2/subsc
+    apiFetch(`/api/v2/subsc).then(r=>r.json()).then(d=>{ if(d.plan) loadDash(tid, key, d); }).catch(()=>{});
+  }
+  // URL params
+  const p = new URLSearchParams(window.location.search);
+  if (p.get('plan')) openGateway(p.get('plan'));
+});
+</script>
+</body>
+</html>
