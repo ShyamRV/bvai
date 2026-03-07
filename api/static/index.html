@@ -889,6 +889,741 @@ input:disabled+.toggle-track{opacity:0.35;cursor:not-allowed;}
 @keyframes shimmer{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
 .hidden{display:none!important;}
 </style>
+<script>
+// ════════════════════════════════════════════════════════════
+// BANKVOICEAI ENTERPRISE PORTAL — v3.0.0
+// Bloomberg Terminal × JPMorgan Chase aesthetic
+// Full compliance: CFPB · FFIEC · TCPA · GLBA · FDCPA
+// ════════════════════════════════════════════════════════════
+
+const API = 'https://bvai-production.up.railway.app';
+
+const PLANS = {
+  professional: { name:'Professional', price:1500, unit:'USD/month', fet:3,
+    features:['1 bank tenant','500 calls/day','3 AI agents','30-day audit log','Email support'] },
+  enterprise:   { name:'Enterprise',   price:3000, unit:'USD/month', fet:5,
+    features:['5 bank tenants','2,000 calls/day','All 6 AI agents','90-day audit log','Priority SLA'] },
+  institutional:{ name:'Institutional',price:6000, unit:'USD/month', fet:10,
+    features:['Unlimited tenants','Unlimited calls','All agents + orchestrator','365-day audit log','Dedicated CSM'] },
+};
+
+const AGENT_LABELS = {
+  customer_service:'Customer Service', fraud_detection:'Fraud Detection',
+  onboarding:'Onboarding', collections:'Collections',
+  sales:'Sales', compliance:'Compliance', orchestrator:'Orchestrator'
+};
+
+// ── State ──────────────────────────────────────────────────
+let S = {
+  tenantId:null, apiKey:null, sub:null,
+  gwPlan:'enterprise', gwBankName:'', gwDetails:null,
+  pollTimer:null, pollProgress:0
+};
+
+// ════════════════════════════════════════════════════════════
+// PAGE NAVIGATION
+// ════════════════════════════════════════════════════════════
+function showLanding(){ pg('pg-landing'); }
+function showSignup(){ openGateway(); }
+function showLogin()  { pg('pg-login'); }
+function showDash()   { pg('pg-dash'); }
+
+function pg(id) {
+  ['pg-landing','pg-login','pg-signup','pg-onboard','pg-dash'].forEach(p => {
+    const el = document.getElementById(p);
+    if (el) el.style.display = p === id ? (id === 'pg-dash' ? 'block' : 'flex') : 'none';
+  });
+  if (id === 'pg-landing') document.getElementById('pg-landing').style.display = 'flex';
+}
+
+// ════════════════════════════════════════════════════════════
+// LOGIN
+// ════════════════════════════════════════════════════════════
+async function doLogin() {
+  const tid = document.getElementById('li-tenant').value.trim();
+  const key = document.getElementById('li-key').value.trim();
+  if (!tid || !key) { showErr('li-err','Both fields required'); return; }
+
+  const btn = document.getElementById('li-btn');
+  btn.disabled = true; btn.innerHTML = '⟳ Authenticating...';
+  hideErr('li-err');
+
+  try {
+    const r = await apiFetch(`/api/v2/subscription/status?tenant_id=${encodeURIComponent(tid)}`, {
+      headers: { 'X-BankVoiceAI-Key': key }
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Invalid credentials');
+    // Simulate MFA for demo (in production: real MFA)
+    S.tenantId = tid; S.apiKey = key; S.sub = d;
+    document.getElementById('login-step1').style.display = 'none';
+    document.getElementById('login-mfa').style.display = 'block';
+  } catch(e) {
+    showErr('li-err', e.message || 'Authentication failed');
+  } finally {
+    btn.disabled = false; btn.innerHTML = '→ Access Portal';
+  }
+}
+
+function mfaNext(el, idx) {
+  if (el.value.length === 1) {
+    const inputs = document.querySelectorAll('.mfa-input');
+    if (idx < 5) inputs[idx + 1].focus();
+    else doMfaVerify();
+  }
+}
+
+function doMfaVerify() {
+  const code = Array.from(document.querySelectorAll('.mfa-input')).map(i=>i.value).join('');
+  if (code.length < 6) { toast('Enter complete 6-digit code','warn'); return; }
+  // In production: verify TOTP against FFIEC-compliant auth service
+  // For demo: any 6 digits work
+  loadDash(S.tenantId, S.apiKey, S.sub);
+}
+
+// ════════════════════════════════════════════════════════════
+// DASHBOARD
+// ════════════════════════════════════════════════════════════
+function loadDash(tenantId, apiKey, sub) {
+  S.tenantId = tenantId; S.apiKey = apiKey; S.sub = sub;
+  showDash();
+  populateSidebar(sub);
+  populateMetrics(sub);
+  populateAgents(sub);
+  populateSubSection(sub);
+  populateTx(sub);
+  populateApiKeys(apiKey);
+  renderAuditLog(sub);
+  renderMainChart();
+  renderPeakChart();
+  showSec('overview');
+  toast('Welcome back. Portal loaded.', 'success');
+}
+
+function populateSidebar(sub) {
+  if (!sub) return;
+  const plan = sub.plan || 'unknown';
+  const exp  = sub.expires_at ? new Date(sub.expires_at).toLocaleDateString() : '—';
+  document.getElementById('sb-plan').textContent   = plan.toUpperCase();
+  document.getElementById('sb-bank').textContent   = sub.bank_name || S.tenantId;
+  document.getElementById('sb-exp').textContent    = `Renews: ${exp} · ${sub.days_until_expiry ?? '—'}d`;
+  document.getElementById('sb-keyshort').textContent = S.apiKey.substring(0,20) + '...';
+  document.getElementById('tb-keyshort').textContent = '⬡ ' + S.apiKey.substring(0,12) + '...';
+  document.getElementById('tc').classList.add('vis');
+}
+
+function populateMetrics(sub) {
+  if (!sub) return;
+  const plan = sub.plan || 'starter';
+  const exp  = sub.expires_at ? new Date(sub.expires_at).toLocaleDateString() : '—';
+  set('m-calls',     (sub.calls_today || 0).toLocaleString());
+  set('m-calls-s',   `Today · ${plan} plan`);
+  set('m-rem',       (sub.calls_remaining_today ?? '—').toLocaleString());
+  set('m-plan',      plan.toUpperCase() + ' Plan');
+  set('m-days',      sub.days_until_expiry ?? '—');
+  set('m-exp',       `Expires ${exp}`);
+  const ac = (sub.agents_enabled || []).length;
+  set('m-agents',    ac);
+  set('m-agents-s',  (sub.agents_enabled || []).slice(0,2).map(a=>AGENT_LABELS[a]||a).join(', ') || 'None');
+}
+
+function populateAgents(sub) {
+  const agents = sub?.agents_enabled || [];
+  const el = document.getElementById('ov-agents');
+  if (!el) return;
+  el.innerHTML = agents.length ? agents.map(a => `
+    <div style="display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
+      <div style="width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px rgba(16,185,129,0.5);flex-shrink:0;"></div>
+      <span style="font-size:12px;flex:1;">${AGENT_LABELS[a]||a}</span>
+      <span class="tag tag-green" style="font-size:8px;">Active</span>
+    </div>`).join('')
+    : '<div style="color:var(--t3);font-size:12px;padding:10px 0;">No agents enabled</div>';
+
+  // Agent toggle grid
+  const grid = document.getElementById('agToggleGrid');
+  if (!grid) return;
+  const all = Object.keys(AGENT_LABELS);
+  grid.innerHTML = all.map(a => {
+    const on = agents.includes(a);
+    return `<div style="display:flex;align-items:center;gap:9px;padding:11px 14px;background:linear-gradient(90deg,rgba(10,20,40,0.7),rgba(6,13,27,0.7));border:1px solid var(--b1);border-radius:var(--r-sm);transition:all 0.18s;" onmouseover="this.style.borderColor='var(--b2)'" onmouseout="this.style.borderColor='var(--b1)'">
+      <div style="width:7px;height:7px;border-radius:50%;background:${on?'var(--green)':'var(--t3)'};${on?'box-shadow:0 0 6px rgba(16,185,129,0.5);':''}flex-shrink:0;"></div>
+      <span style="font-size:13px;flex:1;">${AGENT_LABELS[a]||a}</span>
+      <span class="tag ${on?'tag-green':'tag-gray'}" style="font-size:8px;">${on?'✓ Enabled':'🔒 Upgrade'}</span>
+      <label class="toggle"><input type="checkbox" ${on?'checked':''} ${on?'':'disabled'} onchange="toast('${AGENT_LABELS[a]} ${on?'disabled':'enabled'}','info')"><div class="toggle-track"></div></label>
+    </div>`;
+  }).join('');
+
+  set('ag-sub', `Your plan includes ${agents.length} of ${all.length} agents`);
+  set('ag-count', `${agents.length}/${all.length} Active`);
+}
+
+function populateSubSection(sub) {
+  if (!sub) return;
+  const plan = sub.plan || 'starter';
+  const planKey = plan === 'starter' ? 'professional' : plan === 'growth' ? 'enterprise' : plan;
+  const P = PLANS[planKey] || { price: '—', unit: 'USD/month', features: [] };
+  const exp = sub.expires_at ? new Date(sub.expires_at).toLocaleDateString() : '—';
+  set('sub-badge', plan.toUpperCase() + ' PLAN');
+  set('sub-price', `$${(P.price||'—').toLocaleString()}`);
+  set('sub-unit', ' USD / month');
+  set('sub-info', `Tenant: ${S.tenantId} · Expires: ${exp} · ${sub.days_until_expiry ?? '—'} days remaining`);
+  document.getElementById('sub-feats').innerHTML = (P.features||[]).map(f=>`
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t2);margin-bottom:5px;">
+      <span style="color:var(--gold);">→</span>${f}
+    </div>`).join('');
+
+  const callLimit = {pilot:200,starter:500,growth:2000,enterprise:9999}[plan]||500;
+  const calls = sub.calls_today || 0;
+  const days  = sub.days_until_expiry ?? 30;
+  const ac    = (sub.agents_enabled||[]).length;
+  set('u-calls', `${calls} / ${callLimit}`);
+  pct('u-calls-bar', Math.min(100,(calls/callLimit)*100));
+  set('u-days', `${days} days`);
+  pct('u-days-bar', Math.min(100,(days/30)*100));
+  set('u-agents', `${ac} / 7`);
+  pct('u-agents-bar', (ac/7)*100);
+}
+
+function populateTx(sub) {
+  const ovEl = document.getElementById('ov-tx');
+  const fullEl = document.getElementById('full-tx-list');
+  if (!sub?.last_payment_hash) {
+    if (ovEl) ovEl.innerHTML = '<div style="color:var(--t3);font-size:12px;padding:8px 0;">No payments recorded</div>';
+    if (fullEl) fullEl.innerHTML = '<div style="color:var(--t3);font-size:12px;padding:12px 0;">No payment history</div>';
+    return;
+  }
+  const h = sub.last_payment_hash;
+  const planKey = (sub.plan||'starter');
+  const P = PLANS[planKey] || PLANS['professional'];
+  const txHTML = `
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
+      <span style="font-size:16px;">⬡</span>
+      <div style="flex:1;">
+        <a href="https://explore-dorado.fetch.ai/transactions/${h}" target="_blank"
+          style="font-family:var(--mono);font-size:11px;color:var(--blue-light);">${h.substring(0,12)}...${h.slice(-8)}</a>
+        <div style="font-size:9px;color:var(--t3);font-family:var(--mono);margin-top:2px;">Plan: ${planKey} · ${sub.started_at?new Date(sub.started_at).toLocaleDateString():'—'}</div>
+      </div>
+      <span style="font-family:var(--serif);font-size:14px;color:var(--gold-light);">${P.fet||'—'} FET</span>
+      <span class="tag tag-green">confirmed</span>
+    </div>`;
+  if (ovEl) ovEl.innerHTML = txHTML;
+  if (fullEl) fullEl.innerHTML = txHTML;
+}
+
+function populateApiKeys(key) {
+  const el = document.getElementById('key-list');
+  if (!el) return;
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:linear-gradient(90deg,rgba(37,99,235,0.06),rgba(10,20,40,0.7));border:1px solid var(--b3);border-left:2px solid var(--blue-light);border-radius:var(--r-sm);">
+      <span style="font-family:var(--mono);font-size:11px;color:var(--blue-light);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${key}</span>
+      <span class="tag tag-green">Active</span>
+      <button class="btn btn-ghost btn-sm" onclick="navigator.clipboard.writeText('${key}').then(()=>toast('API key copied','success'))">Copy</button>
+    </div>`;
+}
+
+function renderAuditLog(sub) {
+  const el = document.getElementById('auditList');
+  if (!el) return;
+  const events = [
+    { event:'FET Payment Verified',       detail:`tx: ${sub?.last_payment_hash?.substring(0,14)||'N/A'}... · Dorado blockchain confirmed`, time: sub?.started_at||'—', color:'var(--gold-light)' },
+    { event:'Subscription Activated',     detail:`Plan: ${(sub?.plan||'—').toUpperCase()} · Expires: ${sub?.expires_at?new Date(sub.expires_at).toLocaleDateString():'—'}`, time:'—', color:'var(--green)' },
+    { event:'FFIEC Compliance Mode Set',  detail:'Strict mode enforced · CFPB/FDCPA/TCPA guardrails active', time:'—', color:'var(--blue-light)' },
+    { event:'Agent Access Configured',    detail:`Agents enabled: ${(sub?.agents_enabled||[]).join(', ')||'none'}`, time:'—', color:'var(--amber)' },
+    { event:'API Key Issued',             detail:`Key: ${S.apiKey?.substring(0,16)||'—'}... · AES-256 encrypted at rest`, time:'—', color:'var(--blue-light)' },
+    { event:'Voice Channel Activated',    detail:'Twilio webhook configured · TLS 1.3 in transit', time:'—', color:'var(--green)' },
+    { event:'GLBA Privacy Notice Sent',   detail:'Privacy notice delivered to institution contact per GLBA Section 503', time:'—', color:'var(--t2)' },
+  ];
+  el.innerHTML = events.map(e => `
+    <div class="audit-row">
+      <div class="audit-dot" style="background:${e.color};box-shadow:0 0 6px ${e.color}40;"></div>
+      <div style="flex:1;">
+        <div class="audit-event">${e.event}</div>
+        <div class="audit-detail">${e.detail}</div>
+        <div class="audit-time">${e.time !== '—' ? new Date(e.time).toLocaleString() : '2026-03-04 08:22 EST'}</div>
+      </div>
+    </div>`).join('');
+}
+
+// ════════════════════════════════════════════════════════════
+// SECTION NAV
+// ════════════════════════════════════════════════════════════
+const SEC_TITLES = {
+  overview:     ['Command Center','Overview'],
+  analytics:    ['Analytics','Performance'],
+  alerts:       ['Alerts','Real-Time Monitoring'],
+  agents:       ['AI Agent','Control Panel'],
+  escalation:   ['Escalation','Policy'],
+  compliance:   ['Compliance','Mode & Pipeline'],
+  dbmanager:    ['DB Connection','Manager'],
+  webhooks:     ['Webhook','Configuration'],
+  subscription: ['Subscription','& Billing'],
+  payments:     ['Payment','History'],
+  auditlog:     ['Audit Log','FFIEC / SOC 2'],
+  tcpa:         ['TCPA','Consent Registry'],
+  apikeys:      ['API Keys','Management'],
+};
+
+function showSec(name) {
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.ni').forEach(n=>n.classList.remove('active'));
+  const sec = document.getElementById('sec-' + name);
+  if (sec) sec.classList.add('active');
+  const t = SEC_TITLES[name] || [name, ''];
+  set('ptitle', t[0] + ' <span>' + t[1] + '</span>');
+  if (name === 'overview')  { renderMainChart(); renderPeakChart(); }
+  if (name === 'analytics') { renderAnalyticsChart(); renderPeakChart(); }
+  if (name === 'agents')    { renderAgPerfChart(); }
+  if (name === 'payments')  { populateTx(S.sub); }
+  if (name === 'auditlog')  { renderAuditLog(S.sub); }
+}
+
+// ════════════════════════════════════════════════════════════
+// CHARTS
+// ════════════════════════════════════════════════════════════
+function renderBars(id, data, h=130) {
+  const c = document.getElementById(id);
+  if (!c) return;
+  c.innerHTML = '';
+  const max = Math.max(...data.map(d=>d.v||0), 1);
+  data.forEach(d => {
+    const g   = document.createElement('div'); g.className='bar-group';
+    const ph  = Math.max(3, Math.round((d.v/max)*h));
+    const bar = document.createElement('div'); bar.className='bar-col';
+    bar.style.cssText = `height:${ph}px;background:${d.col||'var(--blue-light)'};`;
+    bar.title = `${d.l}: ${d.v}`;
+    const lbl = document.createElement('div'); lbl.className='bar-lbl'; lbl.textContent=d.l;
+    g.appendChild(bar); g.appendChild(lbl); c.appendChild(g);
+    requestAnimationFrame(()=>bar.style.height=ph+'px');
+  });
+}
+function renderMainChart() {
+  const days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const vals=[1420,1650,1380,1820,1940,860,1842];
+  renderBars('mainChart',days.map((d,i)=>({l:d,v:vals[i],col:i===6?'var(--gold)':'var(--blue-light)',})),130);
+}
+function renderAnalyticsChart() {
+  const data=[];
+  for(let i=29;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);data.push({l:d.getDate()%7===0?d.toLocaleDateString('en',{month:'short',day:'numeric'}):'',v:Math.floor(800+Math.random()*1400),col:'var(--blue-light)'});}
+  renderBars('analyticsChart',data,150);
+}
+function renderPeakChart() {
+  const hrs=['6am','8am','10am','12pm','2pm','4pm','6pm','8pm','10pm'];
+  const vals=[80,210,380,520,490,440,350,220,90];
+  renderBars('peakChart',hrs.map((h,i)=>({l:h,v:vals[i],col:'var(--gold)'})),130);
+  // peakHoursChart: only render if element exists (analytics section)
+  if (document.getElementById('peakHoursChart')) {
+    renderBars('peakHoursChart',hrs.map((h,i)=>({l:h,v:vals[i],col:'var(--gold)'})),130);
+  }
+}
+function renderAgPerfChart() {
+  const ags=['CS','Fraud','Onbd','Coll','Sales','Comp'],ts=[820,340,1240,680,1580,440];
+  renderBars('agPerfChart',ags.map((a,i)=>({l:a,v:ts[i],col:'var(--blue-light)'})),90);
+}
+
+// ════════════════════════════════════════════════════════════
+// REAL-TIME DATA
+// ════════════════════════════════════════════════════════════
+async function fetchLiveSubscription(tid, key) {
+  const r = await apiFetch(`/api/v2/subscription/status?tenant_id=${encodeURIComponent(tid)}`,{headers:{'X-BankVoiceAI-Key':key}});
+  if (!r.ok) return null; return await r.json();
+}
+async function refreshDashboard() {
+  if (!S.tenantId || !S.apiKey) return;
+  try {
+    const r = await apiFetch(`/api/v2/subscription/status?tenant_id=${encodeURIComponent(S.tenantId)}`, {
+      headers: { 'X-BankVoiceAI-Key': S.apiKey }
+    });
+    if (!r.ok) return;
+    const d = await r.json();
+    S.sub = d;
+    populateSidebar(d); populateMetrics(d); populateAgents(d);
+    populateSubSection(d); populateTx(d);
+    toast('Dashboard refreshed','info');
+  } catch(e) { }
+}
+
+// ════════════════════════════════════════════════════════════
+// PAYMENT GATEWAY
+// ════════════════════════════════════════════════════════════
+function openGateway(plan) {
+  S.gwPlan = plan || S.gwPlan || 'enterprise';
+  clearPoll();
+  gwGoTo(1);
+  renderGwPlans(S.gwPlan);
+  if (S.tenantId) document.getElementById('gw-tenantid').value = S.tenantId;
+  document.getElementById('payModal').classList.add('open');
+}
+function closeGateway() {
+  document.getElementById('payModal').classList.remove('open');
+  clearPoll();
+}
+
+function renderGwPlans(sel) {
+  const grid = document.getElementById('gw-plan-grid');
+  if (!grid) return;
+  grid.innerHTML = Object.entries(PLANS).map(([k,p]) => `
+    <div class="gw-plan-opt ${k===sel?'sel':''}" onclick="gwSelectPlan('${k}',this)">
+      <div class="gpo-name">${p.name}</div>
+      <div class="gpo-price">$${p.price.toLocaleString()}</div>
+      <div class="gpo-cycle">${p.unit}</div>
+      <ul class="gpo-feats">${p.features.map(f=>`<li>${f}</li>`).join('')}</ul>
+    </div>`).join('');
+}
+function gwSelectPlan(plan, el) {
+  S.gwPlan = plan;
+  document.querySelectorAll('.gw-plan-opt').forEach(e=>e.classList.remove('sel'));
+  el.classList.add('sel');
+}
+
+function gwGoTo(n) {
+  if (n !== 3) clearPoll(); // prevent poll timer leak when navigating away
+  [1,2,3,4].forEach(i => {
+    const s = document.getElementById('gw-s'+i); if(s) s.style.display=i===n?'block':'none';
+    const dot = document.getElementById('gwd'+i);
+    if (dot) {
+      if (i < n) { dot.style.cssText='border-color:var(--green);color:var(--green);background:rgba(16,185,129,0.1);'; dot.textContent='✓'; }
+      else if (i===n) { dot.style.cssText='border-color:var(--gold);color:var(--gold-light);background:var(--gold-dim);box-shadow:0 0 14px var(--gold-glow);'; dot.textContent=i; }
+      else { dot.style.cssText='border-color:var(--b1);color:var(--t3);background:var(--navy2);'; dot.textContent=i; }
+    }
+  });
+  [1,2,3].forEach(i => {
+    const line = document.getElementById('gwl'+i);
+    if (line) line.className = 'gw-line' + (i<n?' done':'');
+  });
+  if (n===3) startPoll(); else clearPoll();
+}
+
+async function gwStep1() {
+  const bankName = document.getElementById('gw-bankname').value.trim();
+  const rawId    = document.getElementById('gw-tenantid').value.trim().toLowerCase().replace(/\s+/g,'_');
+  if (!bankName) { gwErr('gw-s1-err','Institution name is required'); return; }
+  if (!rawId)    { gwErr('gw-s1-err','Tenant ID is required'); return; }
+  if (!/^[a-z0-9_]+$/.test(rawId)) { gwErr('gw-s1-err','Tenant ID: lowercase letters, numbers, underscores only'); return; }
+
+  const tenantId = rawId.startsWith('bank_') ? rawId : 'bank_' + rawId;
+  S.gwBankName = bankName; S.tenantId = tenantId;
+  const P = PLANS[S.gwPlan];
+
+  const btn = document.getElementById('gw-s1-btn');
+  btn.disabled = true; btn.innerHTML = '⟳ Generating payment details...';
+  gwHideErr('gw-s1-err');
+
+  // Gateway wallet — known address, memo generated client-side (robust fallback)
+  let wallet = 'fetch1jw4wtxc328zyw5w2j7nmjlem3n446u0t59aksa';
+  const memo  = `BANKVOICEAI|${tenantId}|${S.gwPlan}`;
+  const amtFet = P.fet;
+  const amtText = `${amtFet} FET`;
+
+  try {
+    const r = await apiFetch('/api/v2/payments/initiate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ tenant_id:tenantId, bank_name:bankName, plan:S.gwPlan })
+    });
+    const d = await r.json();
+    if (r.ok) {
+      const pi = d.payment_instructions || {};
+      wallet = pi.send_to_wallet || d.wallet_address || d.wallet || wallet;
+      S.gwDetails = d;
+      // Pilot instant
+      if (d.type === 'pilot' && d.api_key) {
+        S.apiKey = d.api_key;
+        S.sub = { plan:'pilot', agents_enabled:d.agents_enabled||[], expires_at:d.expires_at, days_until_expiry:30 };
+        set('gw-s4-bank', bankName); set('gw-s4-plan','PILOT');
+        set('gw-s4-agents',(d.agents_enabled||[]).length+' agents');
+        set('gw-s4-exp',d.expires_at?new Date(d.expires_at).toLocaleDateString():'30 days');
+        set('gw-s4-key',d.api_key);
+        gwGoTo(4); toast('Pilot plan activated!','success'); return;
+      }
+    }
+  } catch(e) { }
+
+  // Populate step 2
+  set('gw-s2-bank', bankName); set('gw-s2-plan', S.gwPlan.toUpperCase()); set('gw-s2-amount', amtText);
+  set('gw-wallet', wallet); set('gw-amount', amtText); set('gw-memo', memo);
+  document.getElementById('gw-memo-raw').value = memo;
+
+  // QR Code
+  const qrBox = document.getElementById('gw-qr'); qrBox.innerHTML = '';
+  try { new QRCode(qrBox, {text:wallet,width:96,height:96,colorDark:'#000',colorLight:'#fff',correctLevel:QRCode.CorrectLevel.M}); }
+  catch(qe) { qrBox.innerHTML='<div style="color:#aaa;font-size:9px;text-align:center;">QR unavailable</div>'; }
+
+  // Deep links
+  document.getElementById('gw-asi-link').href  = `https://wallet.fetch.ai/send?to=${encodeURIComponent(wallet)}&amount=${amtFet}&denom=atestfet&memo=${encodeURIComponent(memo)}`;
+  document.getElementById('gw-keplr-link').href = `https://wallet.keplr.app/chains/fetchhub?send=true&to=${encodeURIComponent(wallet)}&amount=${amtFet}&memo=${encodeURIComponent(memo)}`;
+
+  btn.disabled = false; btn.innerHTML = 'Continue → Get Payment Details';
+  gwGoTo(2);
+}
+
+// ── Polling ──────────────────────────────────────
+let gwPollInt = null, gwPollProg = 0;
+function clearPoll() { if(gwPollInt){clearInterval(gwPollInt);gwPollInt=null;} gwPollProg=0; }
+function startPoll() {
+  clearPoll();
+  let count = 0;
+  gwPollInt = setInterval(async () => {
+    count++;
+    gwPollProg = (gwPollProg + 6) % 100;
+    const bar = document.getElementById('poll-fill');
+    if (bar) bar.style.width = gwPollProg + '%';
+    set('gw-poll-txt', `Monitoring Fetch.ai Dorado blockchain... (check #${count})`);
+    set('gw-poll-count', `Auto-check #${count} at ${new Date().toLocaleTimeString()} · Or paste TX hash above`);
+    const manualHash = document.getElementById('gw-txhash')?.value.trim();
+    if (manualHash) { clearPoll(); gwVerify(); return; }
+    if (count >= 20) { clearPoll(); set('gw-poll-txt','Auto-polling stopped. Paste TX hash manually.'); }
+  }, 15000);
+}
+
+async function gwVerify() {
+  const hash = document.getElementById('gw-txhash').value.trim();
+  if (!hash) { gwErr('gw-s3-err','Paste your transaction hash from the Fetch.ai explorer'); return; }
+  clearPoll();
+
+  const btn = document.getElementById('gw-verify-btn');
+  btn.disabled = true; btn.innerHTML = '⟳ Verifying...';
+  gwHideErr('gw-s3-err');
+  set('gw-poll-txt','Verifying on Fetch.ai Dorado...');
+
+  try {
+    const r = await apiFetch('/api/v2/payments/verify', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ tx_hash:hash, tenant_id:S.tenantId, plan:S.gwPlan, bank_name:S.gwBankName })
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      let msg = d.detail || d.message || d.error || 'Verification failed';
+      if (typeof msg !== 'string') msg = 'Verification failed. Check tx hash and memo match.';
+      if (msg.toLowerCase().includes('already')) msg = '⚠ TX hash already used. Send a new transaction.';
+      if (msg.toLowerCase().includes('memo')) msg = `⚠ Memo mismatch. Required: BANKVOICEAI|${S.tenantId}|${S.gwPlan}`;
+      throw new Error(msg);
+    }
+
+    S.apiKey = d.api_key;
+    const sub = d.subscription || { plan: d.plan||S.gwPlan, agents_enabled: d.agents_enabled||[], expires_at: d.expires_at };
+    S.sub = sub;
+    set('gw-s4-bank', S.gwBankName || S.tenantId);
+    set('gw-s4-plan', (sub.plan||'').toUpperCase());
+    set('gw-s4-agents', (sub.agents_enabled||[]).length + ' agents');
+    set('gw-s4-exp', sub.expires_at ? new Date(sub.expires_at).toLocaleDateString() : '—');
+    set('gw-s4-key', d.api_key);
+    gwGoTo(4);
+    toast('🎉 Subscription activated!', 'success');
+  } catch(e) {
+    gwErr('gw-s3-err', e.message);
+    set('gw-poll-txt', 'Verification failed — check tx hash and memo');
+    startPoll();
+  } finally {
+    btn.disabled = false; btn.innerHTML = 'Verify';
+  }
+}
+
+function gwEnterDashboard() {
+  closeGateway();
+  sessionStorage.setItem('bvai_tenant', S.tenantId);
+  sessionStorage.setItem('bvai_key', S.apiKey);
+  if (S.sub && S.apiKey) {
+    loadDash(S.tenantId, S.apiKey, S.sub);
+  }
+}
+
+function gwCopy(id, msg) {
+  const el = document.getElementById(id);
+  const text = (el?.value || el?.textContent || '').trim();
+  navigator.clipboard.writeText(text).then(()=>toast(msg||'Copied!','success'));
+}
+function gwCopyMemo() {
+  const memo = document.getElementById('gw-memo-raw').value || document.getElementById('gw-memo').textContent;
+  navigator.clipboard.writeText(memo.trim()).then(()=>toast('Memo copied!','success'));
+}
+function gwCopyApiKey() {
+  navigator.clipboard.writeText(document.getElementById('gw-s4-key').textContent)
+    .then(()=>toast('API key copied!','success'));
+}
+
+// ════════════════════════════════════════════════════════════
+// DB CONNECTION MANAGER
+// ════════════════════════════════════════════════════════════
+function showDbForm() { toast('DB connection form ready','info'); }
+function editDbConn(idx) { toast('Edit mode: load existing connection credentials','info'); }
+function rollbackDb(idx) {
+  toast('Rolling back to previous DB configuration...','warn');
+  setTimeout(()=>toast('Rollback complete. Agents restarted with previous config.','success'), 1500);
+}
+function testDbConnection() {
+  const btn = document.getElementById('db-test-btn');
+  const res = document.getElementById('db-test-result');
+  btn.disabled = true; btn.innerHTML = '⟳ Testing...';
+  res.style.display = 'block';
+  res.innerHTML = '<div style="font-size:11px;color:var(--amber);">⟳ Connecting to database...</div>';
+  setTimeout(() => {
+    res.innerHTML = '<div style="font-size:11px;color:var(--green);">✓ Connection successful · Latency: 4.2ms · TLS 1.3 verified · Read-only access confirmed</div>';
+    btn.disabled = false; btn.innerHTML = '⚡ Test Connection';
+    toast('Database connection test passed','success');
+  }, 1800);
+}
+function saveDbConnection() {
+  const name = document.getElementById('db-name-inp')?.value.trim();
+  if (!name) { toast('Enter a connection name','warn'); return; }
+  toast(`Connection "${name}" saved securely. Credentials encrypted at rest.`,'success');
+}
+
+// ════════════════════════════════════════════════════════════
+// MANUAL TX VERIFY
+// ════════════════════════════════════════════════════════════
+async function manualVerify() {
+  const hash = document.getElementById('manual-tx').value.trim();
+  if (!hash) { toast('Enter a transaction hash','warn'); return; }
+  const err = document.getElementById('manual-err');
+  err.style.display='none';
+  try {
+    const r = await apiFetch('/api/v2/payments/verify', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ tx_hash:hash, tenant_id:S.tenantId, plan:S.sub?.plan||'starter' })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Verification failed');
+    S.sub = d.subscription || S.sub;
+    populateSubSection(S.sub); populateTx(S.sub);
+    toast('Transaction verified. Subscription updated.', 'success');
+  } catch(e) {
+    err.style.display='block'; err.className='gw-err show'; err.textContent = e.message;
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// COMPLIANCE
+// ════════════════════════════════════════════════════════════
+function setMode(m) {
+  document.getElementById('m-strict').className = 'mode-opt' + (m==='strict'?' strict':'');
+  document.getElementById('m-assist').className = 'mode-opt' + (m==='assistive'?' assist':'');
+  document.getElementById('mode-warn').style.display = m==='assistive' ? 'block' : 'none';
+  toast(`Compliance mode set to: ${m}`, m==='strict'?'success':'warn');
+}
+function markAllRead() {
+  document.querySelectorAll('.alert-item').forEach(el => el.style.opacity = '0.4');
+  set('alert-count','0'); toast('All alerts marked as read','success');
+}
+
+// ════════════════════════════════════════════════════════════
+// LOGOUT
+// ════════════════════════════════════════════════════════════
+function doLogout() {
+  S = { tenantId:null, apiKey:null, sub:null, gwPlan:'enterprise', gwBankName:'', gwDetails:null };
+  sessionStorage.clear();
+  showLanding();
+  toast('Signed out securely','info');
+}
+
+// ════════════════════════════════════════════════════════════
+// UTILS
+// ════════════════════════════════════════════════════════════
+function set(id, val) { const el=document.getElementById(id); if(el) el.innerHTML=val; }
+function pct(id, p) { const el=document.getElementById(id); if(el) el.style.width=p+'%'; }
+function showErr(id, msg) { const el=document.getElementById(id); if(el){el.textContent=msg;el.className='gw-err show';} }
+function hideErr(id) { const el=document.getElementById(id); if(el) el.className='gw-err'; }
+function gwErr(id, msg) { const el=document.getElementById(id); if(el){el.textContent=msg;el.className='gw-err show';} }
+function gwHideErr(id) { const el=document.getElementById(id); if(el) el.className='gw-err'; }
+
+async function apiFetch(path, opts={}) {
+  return fetch(API + path, {
+    ...opts,
+    headers: { 'Content-Type':'application/json', ...(opts.headers||{}) }
+  });
+}
+
+function toast(msg, type='info') {
+  const cols = { success:'var(--green)', warn:'var(--amber)', info:'var(--blue-light)', error:'var(--red)' };
+  const c = cols[type] || cols.info;
+  const t = document.createElement('div');
+  t.style.cssText = `background:linear-gradient(135deg,rgba(10,20,40,0.98),rgba(6,13,27,0.99));
+    border:1px solid ${c};border-left:3px solid ${c};color:var(--t1);
+    padding:12px 18px;border-radius:var(--r-sm);font-size:13px;
+    max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,0.5);
+    animation:fadeUp 0.25s var(--ease);font-family:var(--sans);`;
+  t.textContent = msg;
+  document.getElementById('toast-wrap').appendChild(t);
+  setTimeout(() => t.remove(), 3800);
+}
+
+// Close modal on backdrop click
+document.getElementById('payModal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeGateway();
+});
+
+// ════════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════════
+
+// Expose all functions globally for onclick handlers
+window.showLanding = showLanding;
+window.showSignup = showSignup;
+window.showLogin = showLogin;
+window.showDash = showDash;
+window.pg = pg;
+window.doLogin = doLogin;
+window.mfaNext = mfaNext;
+window.doMfaVerify = doMfaVerify;
+window.loadDash = loadDash;
+window.populateSidebar = populateSidebar;
+window.populateMetrics = populateMetrics;
+window.populateAgents = populateAgents;
+window.populateSubSection = populateSubSection;
+window.populateTx = populateTx;
+window.populateApiKeys = populateApiKeys;
+window.renderAuditLog = renderAuditLog;
+window.showSec = showSec;
+window.renderBars = renderBars;
+window.renderMainChart = renderMainChart;
+window.renderAnalyticsChart = renderAnalyticsChart;
+window.renderPeakChart = renderPeakChart;
+window.renderAgPerfChart = renderAgPerfChart;
+window.fetchLiveSubscription = fetchLiveSubscription;
+window.refreshDashboard = refreshDashboard;
+window.openGateway = openGateway;
+window.closeGateway = closeGateway;
+window.renderGwPlans = renderGwPlans;
+window.gwSelectPlan = gwSelectPlan;
+window.gwGoTo = gwGoTo;
+window.gwStep1 = gwStep1;
+window.clearPoll = clearPoll;
+window.startPoll = startPoll;
+window.gwVerify = gwVerify;
+window.gwEnterDashboard = gwEnterDashboard;
+window.gwCopy = gwCopy;
+window.gwCopyMemo = gwCopyMemo;
+window.gwCopyApiKey = gwCopyApiKey;
+window.showDbForm = showDbForm;
+window.editDbConn = editDbConn;
+window.rollbackDb = rollbackDb;
+window.testDbConnection = testDbConnection;
+window.saveDbConnection = saveDbConnection;
+window.manualVerify = manualVerify;
+window.setMode = setMode;
+window.markAllRead = markAllRead;
+window.doLogout = doLogout;
+window.set = set;
+window.pct = pct;
+window.showErr = showErr;
+window.hideErr = hideErr;
+window.gwErr = gwErr;
+window.gwHideErr = gwHideErr;
+window.apiFetch = apiFetch;
+window.toast = toast;
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderMainChart();
+  // Check session
+  const tid = sessionStorage.getItem('bvai_tenant');
+  const key = sessionStorage.getItem('bvai_key');
+  if (tid && key) {
+    S.tenantId = tid; S.apiKey = key;
+    apiFetch(`/api/v2/subsc).then(r=>r.json()).then(d=>{ if(d.plan) loadDash(tid, key, d); }).catch(()=>{});
+  }
+  // URL params
+  const p = new URLSearchParams(window.location.search);
+  if (p.get('plan')) openGateway(p.get('plan'));
+});
+</script>
 </head>
 <body>
 <div class="orb orb-1"></div>
@@ -1845,683 +2580,6 @@ input:disabled+.toggle-track{opacity:0.35;cursor:not-allowed;}
 <!-- Toast container -->
 <div class="toast-container" id="toast-wrap"></div>
 
-<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
-// ════════════════════════════════════════════════════════════
-// BANKVOICEAI ENTERPRISE PORTAL — v3.0.0
-// Bloomberg Terminal × JPMorgan Chase aesthetic
-// Full compliance: CFPB · FFIEC · TCPA · GLBA · FDCPA
-// ════════════════════════════════════════════════════════════
-
-const API = 'https://bvai-production.up.railway.app';
-
-const PLANS = {
-  professional: { name:'Professional', price:1500, unit:'USD/month', fet:3,
-    features:['1 bank tenant','500 calls/day','3 AI agents','30-day audit log','Email support'] },
-  enterprise:   { name:'Enterprise',   price:3000, unit:'USD/month', fet:5,
-    features:['5 bank tenants','2,000 calls/day','All 6 AI agents','90-day audit log','Priority SLA'] },
-  institutional:{ name:'Institutional',price:6000, unit:'USD/month', fet:10,
-    features:['Unlimited tenants','Unlimited calls','All agents + orchestrator','365-day audit log','Dedicated CSM'] },
-};
-
-const AGENT_LABELS = {
-  customer_service:'Customer Service', fraud_detection:'Fraud Detection',
-  onboarding:'Onboarding', collections:'Collections',
-  sales:'Sales', compliance:'Compliance', orchestrator:'Orchestrator'
-};
-
-// ── State ──────────────────────────────────────────────────
-let S = {
-  tenantId:null, apiKey:null, sub:null,
-  gwPlan:'enterprise', gwBankName:'', gwDetails:null,
-  pollTimer:null, pollProgress:0
-};
-
-// ════════════════════════════════════════════════════════════
-// PAGE NAVIGATION
-// ════════════════════════════════════════════════════════════
-function showLanding(){ pg('pg-landing'); }
-function showSignup(){ openGateway(); }
-function showLogin()  { pg('pg-login'); }
-function showDash()   { pg('pg-dash'); }
-
-function pg(id) {
-  ['pg-landing','pg-login','pg-signup','pg-onboard','pg-dash'].forEach(p => {
-    const el = document.getElementById(p);
-    if (el) el.style.display = p === id ? (id === 'pg-dash' ? 'block' : 'flex') : 'none';
-  });
-  if (id === 'pg-landing') document.getElementById('pg-landing').style.display = 'flex';
-}
-
-// ════════════════════════════════════════════════════════════
-// LOGIN
-// ════════════════════════════════════════════════════════════
-async function doLogin() {
-  const tid = document.getElementById('li-tenant').value.trim();
-  const key = document.getElementById('li-key').value.trim();
-  if (!tid || !key) { showErr('li-err','Both fields required'); return; }
-
-  const btn = document.getElementById('li-btn');
-  btn.disabled = true; btn.innerHTML = '⟳ Authenticating...';
-  hideErr('li-err');
-
-  try {
-    const r = await apiFetch(`/api/v2/subscription/status?tenant_id=${encodeURIComponent(tid)}`, {
-      headers: { 'X-BankVoiceAI-Key': key }
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || 'Invalid credentials');
-    // Simulate MFA for demo (in production: real MFA)
-    S.tenantId = tid; S.apiKey = key; S.sub = d;
-    document.getElementById('login-step1').style.display = 'none';
-    document.getElementById('login-mfa').style.display = 'block';
-  } catch(e) {
-    showErr('li-err', e.message || 'Authentication failed');
-  } finally {
-    btn.disabled = false; btn.innerHTML = '→ Access Portal';
-  }
-}
-
-function mfaNext(el, idx) {
-  if (el.value.length === 1) {
-    const inputs = document.querySelectorAll('.mfa-input');
-    if (idx < 5) inputs[idx + 1].focus();
-    else doMfaVerify();
-  }
-}
-
-function doMfaVerify() {
-  const code = Array.from(document.querySelectorAll('.mfa-input')).map(i=>i.value).join('');
-  if (code.length < 6) { toast('Enter complete 6-digit code','warn'); return; }
-  // In production: verify TOTP against FFIEC-compliant auth service
-  // For demo: any 6 digits work
-  loadDash(S.tenantId, S.apiKey, S.sub);
-}
-
-// ════════════════════════════════════════════════════════════
-// DASHBOARD
-// ════════════════════════════════════════════════════════════
-function loadDash(tenantId, apiKey, sub) {
-  S.tenantId = tenantId; S.apiKey = apiKey; S.sub = sub;
-  showDash();
-  populateSidebar(sub);
-  populateMetrics(sub);
-  populateAgents(sub);
-  populateSubSection(sub);
-  populateTx(sub);
-  populateApiKeys(apiKey);
-  renderAuditLog(sub);
-  renderMainChart();
-  renderPeakChart();
-  showSec('overview');
-  toast('Welcome back. Portal loaded.', 'success');
-}
-
-function populateSidebar(sub) {
-  if (!sub) return;
-  const plan = sub.plan || 'unknown';
-  const exp  = sub.expires_at ? new Date(sub.expires_at).toLocaleDateString() : '—';
-  document.getElementById('sb-plan').textContent   = plan.toUpperCase();
-  document.getElementById('sb-bank').textContent   = sub.bank_name || S.tenantId;
-  document.getElementById('sb-exp').textContent    = `Renews: ${exp} · ${sub.days_until_expiry ?? '—'}d`;
-  document.getElementById('sb-keyshort').textContent = S.apiKey.substring(0,20) + '...';
-  document.getElementById('tb-keyshort').textContent = '⬡ ' + S.apiKey.substring(0,12) + '...';
-  document.getElementById('tc').classList.add('vis');
-}
-
-function populateMetrics(sub) {
-  if (!sub) return;
-  const plan = sub.plan || 'starter';
-  const exp  = sub.expires_at ? new Date(sub.expires_at).toLocaleDateString() : '—';
-  set('m-calls',     (sub.calls_today || 0).toLocaleString());
-  set('m-calls-s',   `Today · ${plan} plan`);
-  set('m-rem',       (sub.calls_remaining_today ?? '—').toLocaleString());
-  set('m-plan',      plan.toUpperCase() + ' Plan');
-  set('m-days',      sub.days_until_expiry ?? '—');
-  set('m-exp',       `Expires ${exp}`);
-  const ac = (sub.agents_enabled || []).length;
-  set('m-agents',    ac);
-  set('m-agents-s',  (sub.agents_enabled || []).slice(0,2).map(a=>AGENT_LABELS[a]||a).join(', ') || 'None');
-}
-
-function populateAgents(sub) {
-  const agents = sub?.agents_enabled || [];
-  const el = document.getElementById('ov-agents');
-  if (!el) return;
-  el.innerHTML = agents.length ? agents.map(a => `
-    <div style="display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
-      <div style="width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px rgba(16,185,129,0.5);flex-shrink:0;"></div>
-      <span style="font-size:12px;flex:1;">${AGENT_LABELS[a]||a}</span>
-      <span class="tag tag-green" style="font-size:8px;">Active</span>
-    </div>`).join('')
-    : '<div style="color:var(--t3);font-size:12px;padding:10px 0;">No agents enabled</div>';
-
-  // Agent toggle grid
-  const grid = document.getElementById('agToggleGrid');
-  if (!grid) return;
-  const all = Object.keys(AGENT_LABELS);
-  grid.innerHTML = all.map(a => {
-    const on = agents.includes(a);
-    return `<div style="display:flex;align-items:center;gap:9px;padding:11px 14px;background:linear-gradient(90deg,rgba(10,20,40,0.7),rgba(6,13,27,0.7));border:1px solid var(--b1);border-radius:var(--r-sm);transition:all 0.18s;" onmouseover="this.style.borderColor='var(--b2)'" onmouseout="this.style.borderColor='var(--b1)'">
-      <div style="width:7px;height:7px;border-radius:50%;background:${on?'var(--green)':'var(--t3)'};${on?'box-shadow:0 0 6px rgba(16,185,129,0.5);':''}flex-shrink:0;"></div>
-      <span style="font-size:13px;flex:1;">${AGENT_LABELS[a]||a}</span>
-      <span class="tag ${on?'tag-green':'tag-gray'}" style="font-size:8px;">${on?'✓ Enabled':'🔒 Upgrade'}</span>
-      <label class="toggle"><input type="checkbox" ${on?'checked':''} ${on?'':'disabled'} onchange="toast('${AGENT_LABELS[a]} ${on?'disabled':'enabled'}','info')"><div class="toggle-track"></div></label>
-    </div>`;
-  }).join('');
-
-  set('ag-sub', `Your plan includes ${agents.length} of ${all.length} agents`);
-  set('ag-count', `${agents.length}/${all.length} Active`);
-}
-
-function populateSubSection(sub) {
-  if (!sub) return;
-  const plan = sub.plan || 'starter';
-  const planKey = plan === 'starter' ? 'professional' : plan === 'growth' ? 'enterprise' : plan;
-  const P = PLANS[planKey] || { price: '—', unit: 'USD/month', features: [] };
-  const exp = sub.expires_at ? new Date(sub.expires_at).toLocaleDateString() : '—';
-  set('sub-badge', plan.toUpperCase() + ' PLAN');
-  set('sub-price', `$${(P.price||'—').toLocaleString()}`);
-  set('sub-unit', ' USD / month');
-  set('sub-info', `Tenant: ${S.tenantId} · Expires: ${exp} · ${sub.days_until_expiry ?? '—'} days remaining`);
-  document.getElementById('sub-feats').innerHTML = (P.features||[]).map(f=>`
-    <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t2);margin-bottom:5px;">
-      <span style="color:var(--gold);">→</span>${f}
-    </div>`).join('');
-
-  const callLimit = {pilot:200,starter:500,growth:2000,enterprise:9999}[plan]||500;
-  const calls = sub.calls_today || 0;
-  const days  = sub.days_until_expiry ?? 30;
-  const ac    = (sub.agents_enabled||[]).length;
-  set('u-calls', `${calls} / ${callLimit}`);
-  pct('u-calls-bar', Math.min(100,(calls/callLimit)*100));
-  set('u-days', `${days} days`);
-  pct('u-days-bar', Math.min(100,(days/30)*100));
-  set('u-agents', `${ac} / 7`);
-  pct('u-agents-bar', (ac/7)*100);
-}
-
-function populateTx(sub) {
-  const ovEl = document.getElementById('ov-tx');
-  const fullEl = document.getElementById('full-tx-list');
-  if (!sub?.last_payment_hash) {
-    if (ovEl) ovEl.innerHTML = '<div style="color:var(--t3);font-size:12px;padding:8px 0;">No payments recorded</div>';
-    if (fullEl) fullEl.innerHTML = '<div style="color:var(--t3);font-size:12px;padding:12px 0;">No payment history</div>';
-    return;
-  }
-  const h = sub.last_payment_hash;
-  const planKey = (sub.plan||'starter');
-  const P = PLANS[planKey] || PLANS['professional'];
-  const txHTML = `
-    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
-      <span style="font-size:16px;">⬡</span>
-      <div style="flex:1;">
-        <a href="https://explore-dorado.fetch.ai/transactions/${h}" target="_blank"
-          style="font-family:var(--mono);font-size:11px;color:var(--blue-light);">${h.substring(0,12)}...${h.slice(-8)}</a>
-        <div style="font-size:9px;color:var(--t3);font-family:var(--mono);margin-top:2px;">Plan: ${planKey} · ${sub.started_at?new Date(sub.started_at).toLocaleDateString():'—'}</div>
-      </div>
-      <span style="font-family:var(--serif);font-size:14px;color:var(--gold-light);">${P.fet||'—'} FET</span>
-      <span class="tag tag-green">confirmed</span>
-    </div>`;
-  if (ovEl) ovEl.innerHTML = txHTML;
-  if (fullEl) fullEl.innerHTML = txHTML;
-}
-
-function populateApiKeys(key) {
-  const el = document.getElementById('key-list');
-  if (!el) return;
-  el.innerHTML = `
-    <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:linear-gradient(90deg,rgba(37,99,235,0.06),rgba(10,20,40,0.7));border:1px solid var(--b3);border-left:2px solid var(--blue-light);border-radius:var(--r-sm);">
-      <span style="font-family:var(--mono);font-size:11px;color:var(--blue-light);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${key}</span>
-      <span class="tag tag-green">Active</span>
-      <button class="btn btn-ghost btn-sm" onclick="navigator.clipboard.writeText('${key}').then(()=>toast('API key copied','success'))">Copy</button>
-    </div>`;
-}
-
-function renderAuditLog(sub) {
-  const el = document.getElementById('auditList');
-  if (!el) return;
-  const events = [
-    { event:'FET Payment Verified',       detail:`tx: ${sub?.last_payment_hash?.substring(0,14)||'N/A'}... · Dorado blockchain confirmed`, time: sub?.started_at||'—', color:'var(--gold-light)' },
-    { event:'Subscription Activated',     detail:`Plan: ${(sub?.plan||'—').toUpperCase()} · Expires: ${sub?.expires_at?new Date(sub.expires_at).toLocaleDateString():'—'}`, time:'—', color:'var(--green)' },
-    { event:'FFIEC Compliance Mode Set',  detail:'Strict mode enforced · CFPB/FDCPA/TCPA guardrails active', time:'—', color:'var(--blue-light)' },
-    { event:'Agent Access Configured',    detail:`Agents enabled: ${(sub?.agents_enabled||[]).join(', ')||'none'}`, time:'—', color:'var(--amber)' },
-    { event:'API Key Issued',             detail:`Key: ${S.apiKey?.substring(0,16)||'—'}... · AES-256 encrypted at rest`, time:'—', color:'var(--blue-light)' },
-    { event:'Voice Channel Activated',    detail:'Twilio webhook configured · TLS 1.3 in transit', time:'—', color:'var(--green)' },
-    { event:'GLBA Privacy Notice Sent',   detail:'Privacy notice delivered to institution contact per GLBA Section 503', time:'—', color:'var(--t2)' },
-  ];
-  el.innerHTML = events.map(e => `
-    <div class="audit-row">
-      <div class="audit-dot" style="background:${e.color};box-shadow:0 0 6px ${e.color}40;"></div>
-      <div style="flex:1;">
-        <div class="audit-event">${e.event}</div>
-        <div class="audit-detail">${e.detail}</div>
-        <div class="audit-time">${e.time !== '—' ? new Date(e.time).toLocaleString() : '2026-03-04 08:22 EST'}</div>
-      </div>
-    </div>`).join('');
-}
-
-// ════════════════════════════════════════════════════════════
-// SECTION NAV
-// ════════════════════════════════════════════════════════════
-const SEC_TITLES = {
-  overview:     ['Command Center','Overview'],
-  analytics:    ['Analytics','Performance'],
-  alerts:       ['Alerts','Real-Time Monitoring'],
-  agents:       ['AI Agent','Control Panel'],
-  escalation:   ['Escalation','Policy'],
-  compliance:   ['Compliance','Mode & Pipeline'],
-  dbmanager:    ['DB Connection','Manager'],
-  webhooks:     ['Webhook','Configuration'],
-  subscription: ['Subscription','& Billing'],
-  payments:     ['Payment','History'],
-  auditlog:     ['Audit Log','FFIEC / SOC 2'],
-  tcpa:         ['TCPA','Consent Registry'],
-  apikeys:      ['API Keys','Management'],
-};
-
-function showSec(name) {
-  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
-  document.querySelectorAll('.ni').forEach(n=>n.classList.remove('active'));
-  const sec = document.getElementById('sec-' + name);
-  if (sec) sec.classList.add('active');
-  const t = SEC_TITLES[name] || [name, ''];
-  set('ptitle', t[0] + ' <span>' + t[1] + '</span>');
-  if (name === 'overview')  { renderMainChart(); renderPeakChart(); }
-  if (name === 'analytics') { renderAnalyticsChart(); renderPeakChart(); }
-  if (name === 'agents')    { renderAgPerfChart(); }
-  if (name === 'payments')  { populateTx(S.sub); }
-  if (name === 'auditlog')  { renderAuditLog(S.sub); }
-}
-
-// ════════════════════════════════════════════════════════════
-// CHARTS
-// ════════════════════════════════════════════════════════════
-function renderBars(id, data, h=130) {
-  const c = document.getElementById(id);
-  if (!c) return;
-  c.innerHTML = '';
-  const max = Math.max(...data.map(d=>d.v||0), 1);
-  data.forEach(d => {
-    const g   = document.createElement('div'); g.className='bar-group';
-    const ph  = Math.max(3, Math.round((d.v/max)*h));
-    const bar = document.createElement('div'); bar.className='bar-col';
-    bar.style.cssText = `height:${ph}px;background:${d.col||'var(--blue-light)'};`;
-    bar.title = `${d.l}: ${d.v}`;
-    const lbl = document.createElement('div'); lbl.className='bar-lbl'; lbl.textContent=d.l;
-    g.appendChild(bar); g.appendChild(lbl); c.appendChild(g);
-    requestAnimationFrame(()=>bar.style.height=ph+'px');
-  });
-}
-function renderMainChart() {
-  const days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  const vals=[1420,1650,1380,1820,1940,860,1842];
-  renderBars('mainChart',days.map((d,i)=>({l:d,v:vals[i],col:i===6?'var(--gold)':'var(--blue-light)',})),130);
-}
-function renderAnalyticsChart() {
-  const data=[];
-  for(let i=29;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);data.push({l:d.getDate()%7===0?d.toLocaleDateString('en',{month:'short',day:'numeric'}):'',v:Math.floor(800+Math.random()*1400),col:'var(--blue-light)'});}
-  renderBars('analyticsChart',data,150);
-}
-function renderPeakChart() {
-  const hrs=['6am','8am','10am','12pm','2pm','4pm','6pm','8pm','10pm'];
-  const vals=[80,210,380,520,490,440,350,220,90];
-  renderBars('peakChart',hrs.map((h,i)=>({l:h,v:vals[i],col:'var(--gold)'})),130);
-  // peakHoursChart: only render if element exists (analytics section)
-  if (document.getElementById('peakHoursChart')) {
-    renderBars('peakHoursChart',hrs.map((h,i)=>({l:h,v:vals[i],col:'var(--gold)'})),130);
-  }
-}
-function renderAgPerfChart() {
-  const ags=['CS','Fraud','Onbd','Coll','Sales','Comp'],ts=[820,340,1240,680,1580,440];
-  renderBars('agPerfChart',ags.map((a,i)=>({l:a,v:ts[i],col:'var(--blue-light)'})),90);
-}
-
-// ════════════════════════════════════════════════════════════
-// REAL-TIME DATA
-// ════════════════════════════════════════════════════════════
-async function fetchLiveSubscription(tid, key) {
-  const r = await apiFetch(`/api/v2/subscription/status?tenant_id=${encodeURIComponent(tid)}`,{headers:{'X-BankVoiceAI-Key':key}});
-  if (!r.ok) return null; return await r.json();
-}
-async function refreshDashboard() {
-  if (!S.tenantId || !S.apiKey) return;
-  try {
-    const r = await apiFetch(`/api/v2/subscription/status?tenant_id=${encodeURIComponent(S.tenantId)}`, {
-      headers: { 'X-BankVoiceAI-Key': S.apiKey }
-    });
-    if (!r.ok) return;
-    const d = await r.json();
-    S.sub = d;
-    populateSidebar(d); populateMetrics(d); populateAgents(d);
-    populateSubSection(d); populateTx(d);
-    toast('Dashboard refreshed','info');
-  } catch(e) { }
-}
-
-// ════════════════════════════════════════════════════════════
-// PAYMENT GATEWAY
-// ════════════════════════════════════════════════════════════
-function openGateway(plan) {
-  S.gwPlan = plan || S.gwPlan || 'enterprise';
-  clearPoll();
-  gwGoTo(1);
-  renderGwPlans(S.gwPlan);
-  if (S.tenantId) document.getElementById('gw-tenantid').value = S.tenantId;
-  document.getElementById('payModal').classList.add('open');
-}
-function closeGateway() {
-  document.getElementById('payModal').classList.remove('open');
-  clearPoll();
-}
-
-function renderGwPlans(sel) {
-  const grid = document.getElementById('gw-plan-grid');
-  if (!grid) return;
-  grid.innerHTML = Object.entries(PLANS).map(([k,p]) => `
-    <div class="gw-plan-opt ${k===sel?'sel':''}" onclick="gwSelectPlan('${k}',this)">
-      <div class="gpo-name">${p.name}</div>
-      <div class="gpo-price">$${p.price.toLocaleString()}</div>
-      <div class="gpo-cycle">${p.unit}</div>
-      <ul class="gpo-feats">${p.features.map(f=>`<li>${f}</li>`).join('')}</ul>
-    </div>`).join('');
-}
-function gwSelectPlan(plan, el) {
-  S.gwPlan = plan;
-  document.querySelectorAll('.gw-plan-opt').forEach(e=>e.classList.remove('sel'));
-  el.classList.add('sel');
-}
-
-function gwGoTo(n) {
-  if (n !== 3) clearPoll(); // prevent poll timer leak when navigating away
-  [1,2,3,4].forEach(i => {
-    const s = document.getElementById('gw-s'+i); if(s) s.style.display=i===n?'block':'none';
-    const dot = document.getElementById('gwd'+i);
-    if (dot) {
-      if (i < n) { dot.style.cssText='border-color:var(--green);color:var(--green);background:rgba(16,185,129,0.1);'; dot.textContent='✓'; }
-      else if (i===n) { dot.style.cssText='border-color:var(--gold);color:var(--gold-light);background:var(--gold-dim);box-shadow:0 0 14px var(--gold-glow);'; dot.textContent=i; }
-      else { dot.style.cssText='border-color:var(--b1);color:var(--t3);background:var(--navy2);'; dot.textContent=i; }
-    }
-  });
-  [1,2,3].forEach(i => {
-    const line = document.getElementById('gwl'+i);
-    if (line) line.className = 'gw-line' + (i<n?' done':'');
-  });
-  if (n===3) startPoll(); else clearPoll();
-}
-
-async function gwStep1() {
-  const bankName = document.getElementById('gw-bankname').value.trim();
-  const rawId    = document.getElementById('gw-tenantid').value.trim().toLowerCase().replace(/\s+/g,'_');
-  if (!bankName) { gwErr('gw-s1-err','Institution name is required'); return; }
-  if (!rawId)    { gwErr('gw-s1-err','Tenant ID is required'); return; }
-  if (!/^[a-z0-9_]+$/.test(rawId)) { gwErr('gw-s1-err','Tenant ID: lowercase letters, numbers, underscores only'); return; }
-
-  const tenantId = rawId.startsWith('bank_') ? rawId : 'bank_' + rawId;
-  S.gwBankName = bankName; S.tenantId = tenantId;
-  const P = PLANS[S.gwPlan];
-
-  const btn = document.getElementById('gw-s1-btn');
-  btn.disabled = true; btn.innerHTML = '⟳ Generating payment details...';
-  gwHideErr('gw-s1-err');
-
-  // Gateway wallet — known address, memo generated client-side (robust fallback)
-  let wallet = 'fetch1jw4wtxc328zyw5w2j7nmjlem3n446u0t59aksa';
-  const memo  = `BANKVOICEAI|${tenantId}|${S.gwPlan}`;
-  const amtFet = P.fet;
-  const amtText = `${amtFet} FET`;
-
-  try {
-    const r = await apiFetch('/api/v2/payments/initiate', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ tenant_id:tenantId, bank_name:bankName, plan:S.gwPlan })
-    });
-    const d = await r.json();
-    if (r.ok) {
-      const pi = d.payment_instructions || {};
-      wallet = pi.send_to_wallet || d.wallet_address || d.wallet || wallet;
-      S.gwDetails = d;
-      // Pilot instant
-      if (d.type === 'pilot' && d.api_key) {
-        S.apiKey = d.api_key;
-        S.sub = { plan:'pilot', agents_enabled:d.agents_enabled||[], expires_at:d.expires_at, days_until_expiry:30 };
-        set('gw-s4-bank', bankName); set('gw-s4-plan','PILOT');
-        set('gw-s4-agents',(d.agents_enabled||[]).length+' agents');
-        set('gw-s4-exp',d.expires_at?new Date(d.expires_at).toLocaleDateString():'30 days');
-        set('gw-s4-key',d.api_key);
-        gwGoTo(4); toast('Pilot plan activated!','success'); return;
-      }
-    }
-  } catch(e) { }
-
-  // Populate step 2
-  set('gw-s2-bank', bankName); set('gw-s2-plan', S.gwPlan.toUpperCase()); set('gw-s2-amount', amtText);
-  set('gw-wallet', wallet); set('gw-amount', amtText); set('gw-memo', memo);
-  document.getElementById('gw-memo-raw').value = memo;
-
-  // QR Code
-  const qrBox = document.getElementById('gw-qr'); qrBox.innerHTML = '';
-  try { new QRCode(qrBox, {text:wallet,width:96,height:96,colorDark:'#000',colorLight:'#fff',correctLevel:QRCode.CorrectLevel.M}); }
-  catch(qe) { qrBox.innerHTML='<div style="color:#aaa;font-size:9px;text-align:center;">QR unavailable</div>'; }
-
-  // Deep links
-  document.getElementById('gw-asi-link').href  = `https://wallet.fetch.ai/send?to=${encodeURIComponent(wallet)}&amount=${amtFet}&denom=atestfet&memo=${encodeURIComponent(memo)}`;
-  document.getElementById('gw-keplr-link').href = `https://wallet.keplr.app/chains/fetchhub?send=true&to=${encodeURIComponent(wallet)}&amount=${amtFet}&memo=${encodeURIComponent(memo)}`;
-
-  btn.disabled = false; btn.innerHTML = 'Continue → Get Payment Details';
-  gwGoTo(2);
-}
-
-// ── Polling ──────────────────────────────────────
-let gwPollInt = null, gwPollProg = 0;
-function clearPoll() { if(gwPollInt){clearInterval(gwPollInt);gwPollInt=null;} gwPollProg=0; }
-function startPoll() {
-  clearPoll();
-  let count = 0;
-  gwPollInt = setInterval(async () => {
-    count++;
-    gwPollProg = (gwPollProg + 6) % 100;
-    const bar = document.getElementById('poll-fill');
-    if (bar) bar.style.width = gwPollProg + '%';
-    set('gw-poll-txt', `Monitoring Fetch.ai Dorado blockchain... (check #${count})`);
-    set('gw-poll-count', `Auto-check #${count} at ${new Date().toLocaleTimeString()} · Or paste TX hash above`);
-    const manualHash = document.getElementById('gw-txhash')?.value.trim();
-    if (manualHash) { clearPoll(); gwVerify(); return; }
-    if (count >= 20) { clearPoll(); set('gw-poll-txt','Auto-polling stopped. Paste TX hash manually.'); }
-  }, 15000);
-}
-
-async function gwVerify() {
-  const hash = document.getElementById('gw-txhash').value.trim();
-  if (!hash) { gwErr('gw-s3-err','Paste your transaction hash from the Fetch.ai explorer'); return; }
-  clearPoll();
-
-  const btn = document.getElementById('gw-verify-btn');
-  btn.disabled = true; btn.innerHTML = '⟳ Verifying...';
-  gwHideErr('gw-s3-err');
-  set('gw-poll-txt','Verifying on Fetch.ai Dorado...');
-
-  try {
-    const r = await apiFetch('/api/v2/payments/verify', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ tx_hash:hash, tenant_id:S.tenantId, plan:S.gwPlan, bank_name:S.gwBankName })
-    });
-    const d = await r.json();
-    if (!r.ok) {
-      let msg = d.detail || d.message || d.error || 'Verification failed';
-      if (typeof msg !== 'string') msg = 'Verification failed. Check tx hash and memo match.';
-      if (msg.toLowerCase().includes('already')) msg = '⚠ TX hash already used. Send a new transaction.';
-      if (msg.toLowerCase().includes('memo')) msg = `⚠ Memo mismatch. Required: BANKVOICEAI|${S.tenantId}|${S.gwPlan}`;
-      throw new Error(msg);
-    }
-
-    S.apiKey = d.api_key;
-    const sub = d.subscription || { plan: d.plan||S.gwPlan, agents_enabled: d.agents_enabled||[], expires_at: d.expires_at };
-    S.sub = sub;
-    set('gw-s4-bank', S.gwBankName || S.tenantId);
-    set('gw-s4-plan', (sub.plan||'').toUpperCase());
-    set('gw-s4-agents', (sub.agents_enabled||[]).length + ' agents');
-    set('gw-s4-exp', sub.expires_at ? new Date(sub.expires_at).toLocaleDateString() : '—');
-    set('gw-s4-key', d.api_key);
-    gwGoTo(4);
-    toast('🎉 Subscription activated!', 'success');
-  } catch(e) {
-    gwErr('gw-s3-err', e.message);
-    set('gw-poll-txt', 'Verification failed — check tx hash and memo');
-    startPoll();
-  } finally {
-    btn.disabled = false; btn.innerHTML = 'Verify';
-  }
-}
-
-function gwEnterDashboard() {
-  closeGateway();
-  sessionStorage.setItem('bvai_tenant', S.tenantId);
-  sessionStorage.setItem('bvai_key', S.apiKey);
-  if (S.sub && S.apiKey) {
-    loadDash(S.tenantId, S.apiKey, S.sub);
-  }
-}
-
-function gwCopy(id, msg) {
-  const el = document.getElementById(id);
-  const text = (el?.value || el?.textContent || '').trim();
-  navigator.clipboard.writeText(text).then(()=>toast(msg||'Copied!','success'));
-}
-function gwCopyMemo() {
-  const memo = document.getElementById('gw-memo-raw').value || document.getElementById('gw-memo').textContent;
-  navigator.clipboard.writeText(memo.trim()).then(()=>toast('Memo copied!','success'));
-}
-function gwCopyApiKey() {
-  navigator.clipboard.writeText(document.getElementById('gw-s4-key').textContent)
-    .then(()=>toast('API key copied!','success'));
-}
-
-// ════════════════════════════════════════════════════════════
-// DB CONNECTION MANAGER
-// ════════════════════════════════════════════════════════════
-function showDbForm() { toast('DB connection form ready','info'); }
-function editDbConn(idx) { toast('Edit mode: load existing connection credentials','info'); }
-function rollbackDb(idx) {
-  toast('Rolling back to previous DB configuration...','warn');
-  setTimeout(()=>toast('Rollback complete. Agents restarted with previous config.','success'), 1500);
-}
-function testDbConnection() {
-  const btn = document.getElementById('db-test-btn');
-  const res = document.getElementById('db-test-result');
-  btn.disabled = true; btn.innerHTML = '⟳ Testing...';
-  res.style.display = 'block';
-  res.innerHTML = '<div style="font-size:11px;color:var(--amber);">⟳ Connecting to database...</div>';
-  setTimeout(() => {
-    res.innerHTML = '<div style="font-size:11px;color:var(--green);">✓ Connection successful · Latency: 4.2ms · TLS 1.3 verified · Read-only access confirmed</div>';
-    btn.disabled = false; btn.innerHTML = '⚡ Test Connection';
-    toast('Database connection test passed','success');
-  }, 1800);
-}
-function saveDbConnection() {
-  const name = document.getElementById('db-name-inp')?.value.trim();
-  if (!name) { toast('Enter a connection name','warn'); return; }
-  toast(`Connection "${name}" saved securely. Credentials encrypted at rest.`,'success');
-}
-
-// ════════════════════════════════════════════════════════════
-// MANUAL TX VERIFY
-// ════════════════════════════════════════════════════════════
-async function manualVerify() {
-  const hash = document.getElementById('manual-tx').value.trim();
-  if (!hash) { toast('Enter a transaction hash','warn'); return; }
-  const err = document.getElementById('manual-err');
-  err.style.display='none';
-  try {
-    const r = await apiFetch('/api/v2/payments/verify', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ tx_hash:hash, tenant_id:S.tenantId, plan:S.sub?.plan||'starter' })
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || 'Verification failed');
-    S.sub = d.subscription || S.sub;
-    populateSubSection(S.sub); populateTx(S.sub);
-    toast('Transaction verified. Subscription updated.', 'success');
-  } catch(e) {
-    err.style.display='block'; err.className='gw-err show'; err.textContent = e.message;
-  }
-}
-
-// ════════════════════════════════════════════════════════════
-// COMPLIANCE
-// ════════════════════════════════════════════════════════════
-function setMode(m) {
-  document.getElementById('m-strict').className = 'mode-opt' + (m==='strict'?' strict':'');
-  document.getElementById('m-assist').className = 'mode-opt' + (m==='assistive'?' assist':'');
-  document.getElementById('mode-warn').style.display = m==='assistive' ? 'block' : 'none';
-  toast(`Compliance mode set to: ${m}`, m==='strict'?'success':'warn');
-}
-function markAllRead() {
-  document.querySelectorAll('.alert-item').forEach(el => el.style.opacity = '0.4');
-  set('alert-count','0'); toast('All alerts marked as read','success');
-}
-
-// ════════════════════════════════════════════════════════════
-// LOGOUT
-// ════════════════════════════════════════════════════════════
-function doLogout() {
-  S = { tenantId:null, apiKey:null, sub:null, gwPlan:'enterprise', gwBankName:'', gwDetails:null };
-  sessionStorage.clear();
-  showLanding();
-  toast('Signed out securely','info');
-}
-
-// ════════════════════════════════════════════════════════════
-// UTILS
-// ════════════════════════════════════════════════════════════
-function set(id, val) { const el=document.getElementById(id); if(el) el.innerHTML=val; }
-function pct(id, p) { const el=document.getElementById(id); if(el) el.style.width=p+'%'; }
-function showErr(id, msg) { const el=document.getElementById(id); if(el){el.textContent=msg;el.className='gw-err show';} }
-function hideErr(id) { const el=document.getElementById(id); if(el) el.className='gw-err'; }
-function gwErr(id, msg) { const el=document.getElementById(id); if(el){el.textContent=msg;el.className='gw-err show';} }
-function gwHideErr(id) { const el=document.getElementById(id); if(el) el.className='gw-err'; }
-
-async function apiFetch(path, opts={}) {
-  return fetch(API + path, {
-    ...opts,
-    headers: { 'Content-Type':'application/json', ...(opts.headers||{}) }
-  });
-}
-
-function toast(msg, type='info') {
-  const cols = { success:'var(--green)', warn:'var(--amber)', info:'var(--blue-light)', error:'var(--red)' };
-  const c = cols[type] || cols.info;
-  const t = document.createElement('div');
-  t.style.cssText = `background:linear-gradient(135deg,rgba(10,20,40,0.98),rgba(6,13,27,0.99));
-    border:1px solid ${c};border-left:3px solid ${c};color:var(--t1);
-    padding:12px 18px;border-radius:var(--r-sm);font-size:13px;
-    max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,0.5);
-    animation:fadeUp 0.25s var(--ease);font-family:var(--sans);`;
-  t.textContent = msg;
-  document.getElementById('toast-wrap').appendChild(t);
-  setTimeout(() => t.remove(), 3800);
-}
-
-// Close modal on backdrop click
-document.getElementById('payModal').addEventListener('click', e => {
-  if (e.target === e.currentTarget) closeGateway();
-});
-
-// ════════════════════════════════════════════════════════════
-// INIT
-// ════════════════════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
-  renderMainChart();
-  // Check session
-  const tid = sessionStorage.getItem('bvai_tenant');
-  const key = sessionStorage.getItem('bvai_key');
-  if (tid && key) {
-    S.tenantId = tid; S.apiKey = key;
-    apiFetch(`/api/v2/subsc).then(r=>r.json()).then(d=>{ if(d.plan) loadDash(tid, key, d); }).catch(()=>{});
-  }
-  // URL params
-  const p = new URLSearchParams(window.location.search);
-  if (p.get('plan')) openGateway(p.get('plan'));
-});
-</script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script>
 </body>
 </html>
