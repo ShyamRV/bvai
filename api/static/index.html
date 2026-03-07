@@ -1476,8 +1476,8 @@ input:disabled+.toggle-track{opacity:0.35;cursor:not-allowed;}
           <table class="data-table">
             <thead><tr><th>Version</th><th>Changed By</th><th>Change Summary</th><th>Timestamp</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
-              <tr><td class="mono" style="color:var(--green);">v3 (current)</td><td>admin@bank.com</td><td>Added SSL cert · Updated read user</td><td class="mono" style="color:var(--t3);">2026-03-04 08:22 EST</td><td><span class="tag tag-green">Active</span></td><td>—</td></tr>
-              <tr><td class="mono">v2</td><td>admin@bank.com</td><td>Schema mapper — added loan_applications</td><td class="mono" style="color:var(--t3);">2026-02-18 14:45 EST</td><td><span class="tag tag-gray">Archived</span></td><td><button class="btn btn-ghost btn-sm" onclick="toast('Rolled back to v2 configuration. Agents restarting...','info')">↩ Rollback</button></td></tr>
+              <tr><td class="mono" style="color:var(--green);">v3 (current)</td><td><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="e180858c888fa183808f8acf828e8c">[email&#160;protected]</a></td><td>Added SSL cert · Updated read user</td><td class="mono" style="color:var(--t3);">2026-03-04 08:22 EST</td><td><span class="tag tag-green">Active</span></td><td>—</td></tr>
+              <tr><td class="mono">v2</td><td><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="7716131a1e19371516191c5914181a">[email&#160;protected]</a></td><td>Schema mapper — added loan_applications</td><td class="mono" style="color:var(--t3);">2026-02-18 14:45 EST</td><td><span class="tag tag-gray">Archived</span></td><td><button class="btn btn-ghost btn-sm" onclick="toast('Rolled back to v2 configuration. Agents restarting...','info')">↩ Rollback</button></td></tr>
               <tr><td class="mono">v1</td><td>system</td><td>Initial connection — core banking only</td><td class="mono" style="color:var(--t3);">2026-02-04 09:10 EST</td><td><span class="tag tag-gray">Archived</span></td><td><button class="btn btn-ghost btn-sm" onclick="toast('Rolled back to v1 configuration.','info')">↩ Rollback</button></td></tr>
             </tbody>
           </table>
@@ -1845,7 +1845,7 @@ input:disabled+.toggle-track{opacity:0.35;cursor:not-allowed;}
 <!-- Toast container -->
 <div class="toast-container" id="toast-wrap"></div>
 
-<script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
 // ════════════════════════════════════════════════════════════
 // BANKVOICEAI ENTERPRISE PORTAL — v3.0.0
 // Bloomberg Terminal × JPMorgan Chase aesthetic
@@ -1855,11 +1855,11 @@ input:disabled+.toggle-track{opacity:0.35;cursor:not-allowed;}
 const API = 'https://bvai-production.up.railway.app';
 
 const PLANS = {
-  professional: { name:'Professional', price:1500, unit:'USD/month', fet:500,
+  professional: { name:'Professional', price:1500, unit:'USD/month', fet:3,
     features:['1 bank tenant','500 calls/day','3 AI agents','30-day audit log','Email support'] },
-  enterprise:   { name:'Enterprise',   price:3000, unit:'USD/month', fet:1000,
+  enterprise:   { name:'Enterprise',   price:3000, unit:'USD/month', fet:5,
     features:['5 bank tenants','2,000 calls/day','All 6 AI agents','90-day audit log','Priority SLA'] },
-  institutional:{ name:'Institutional',price:6000, unit:'USD/month', fet:2000,
+  institutional:{ name:'Institutional',price:6000, unit:'USD/month', fet:10,
     features:['Unlimited tenants','Unlimited calls','All agents + orchestrator','365-day audit log','Dedicated CSM'] },
 };
 
@@ -1894,11 +1894,6 @@ function pg(id) {
 // ════════════════════════════════════════════════════════════
 // LOGIN
 // ════════════════════════════════════════════════════════════
-function showLogin() {
-  pg('pg-login');
-  document.getElementById('pg-login').style.display = 'block';
-}
-
 async function doLogin() {
   const tid = document.getElementById('li-tenant').value.trim();
   const key = document.getElementById('li-key').value.trim();
@@ -2170,7 +2165,10 @@ function renderPeakChart() {
   const hrs=['6am','8am','10am','12pm','2pm','4pm','6pm','8pm','10pm'];
   const vals=[80,210,380,520,490,440,350,220,90];
   renderBars('peakChart',hrs.map((h,i)=>({l:h,v:vals[i],col:'var(--gold)'})),130);
-  renderBars('peakHoursChart',hrs.map((h,i)=>({l:h,v:vals[i],col:'var(--gold)'})),130);
+  // peakHoursChart: only render if element exists (analytics section)
+  if (document.getElementById('peakHoursChart')) {
+    renderBars('peakHoursChart',hrs.map((h,i)=>({l:h,v:vals[i],col:'var(--gold)'})),130);
+  }
 }
 function renderAgPerfChart() {
   const ags=['CS','Fraud','Onbd','Coll','Sales','Comp'],ts=[820,340,1240,680,1580,440];
@@ -2196,7 +2194,7 @@ async function refreshDashboard() {
     populateSidebar(d); populateMetrics(d); populateAgents(d);
     populateSubSection(d); populateTx(d);
     toast('Dashboard refreshed','info');
-  } catch(e) { console.log('Refresh failed:', e.message); }
+  } catch(e) { }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -2233,6 +2231,7 @@ function gwSelectPlan(plan, el) {
 }
 
 function gwGoTo(n) {
+  if (n !== 3) clearPoll(); // prevent poll timer leak when navigating away
   [1,2,3,4].forEach(i => {
     const s = document.getElementById('gw-s'+i); if(s) s.style.display=i===n?'block':'none';
     const dot = document.getElementById('gwd'+i);
@@ -2291,7 +2290,7 @@ async function gwStep1() {
         gwGoTo(4); toast('Pilot plan activated!','success'); return;
       }
     }
-  } catch(e) { console.log('Initiate API call failed, using client-side fallback:', e.message); }
+  } catch(e) { }
 
   // Populate step 2
   set('gw-s2-bank', bankName); set('gw-s2-plan', S.gwPlan.toUpperCase()); set('gw-s2-amount', amtText);
@@ -2516,14 +2515,4 @@ document.addEventListener('DOMContentLoaded', () => {
   const key = sessionStorage.getItem('bvai_key');
   if (tid && key) {
     S.tenantId = tid; S.apiKey = key;
-    apiFetch(`/api/v2/subscription/status?tenant_id=${encodeURIComponent(tid)}`, {
-      headers: { 'X-BankVoiceAI-Key': key }
-    }).then(r=>r.json()).then(d=>{ if(d.plan) loadDash(tid, key, d); }).catch(()=>{});
-  }
-  // URL params
-  const p = new URLSearchParams(window.location.search);
-  if (p.get('plan')) openGateway(p.get('plan'));
-});
-</script>
-</body>
-</html>
+    apiFetch(`/api/v2/subsc
