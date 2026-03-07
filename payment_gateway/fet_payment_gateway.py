@@ -91,7 +91,7 @@ PLAN_CONFIG: Dict[str, Dict] = {
     },
     SubscriptionPlan.STARTER: {
         "name": "Starter",
-        "fet_per_month": Decimal("250"),
+        "fet_per_month": Decimal("3"),
         "max_banks": 1,
         "calls_per_day": 500,
         "agents_enabled": ["customer_service", "fraud_detection", "onboarding"],
@@ -103,7 +103,7 @@ PLAN_CONFIG: Dict[str, Dict] = {
     },
     SubscriptionPlan.GROWTH: {
         "name": "Growth",
-        "fet_per_month": Decimal("750"),
+        "fet_per_month": Decimal("5"),
         "max_banks": 5,
         "calls_per_day": 2000,
         "agents_enabled": [
@@ -118,7 +118,7 @@ PLAN_CONFIG: Dict[str, Dict] = {
     },
     SubscriptionPlan.ENTERPRISE: {
         "name": "Enterprise",
-        "fet_per_month": Decimal("2000"),
+        "fet_per_month": Decimal("10"),
         "max_banks": -1,       # unlimited
         "calls_per_day": -1,   # unlimited
         "agents_enabled": [
