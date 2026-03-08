@@ -76,11 +76,11 @@ CREATE TABLE IF NOT EXISTS bvai_transactions (
 
 CREATE INDEX IF NOT EXISTS idx_txn_customer ON bvai_transactions(customer_id, txn_date DESC);
 
--- ── Seed Shyam Reddy demo data ────────────────────────────────────────────────
+-- ── Seed Shyamji Pandey demo data ────────────────────────────────────────────────
 
 INSERT INTO bvai_customers (customer_id, full_name, phone, phone_alt, account_number, email)
 VALUES
-  ('CUST-001', 'Shyam Reddy', '+918431439772', '+917893924878', '****4821', 'shyamji211105@gmail.com')
+  ('CUST-001', 'Shyamji Pandey', '+918431439772', '+917893924878', '****4821', 'shyamji211105@gmail.com')
 ON CONFLICT (customer_id) DO UPDATE
   SET full_name = EXCLUDED.full_name,
       phone     = EXCLUDED.phone,
