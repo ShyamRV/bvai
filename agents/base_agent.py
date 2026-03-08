@@ -229,28 +229,82 @@ class BaseAgent(ABC):
         return "neutral"
 
     def build_context_string(self, customer: CustomerContext) -> str:
-        """Serialize CustomerContext for LLM system prompt injection."""
-        parts = []
-        if customer.demo_mode:
-            parts.append("MODE: DEMO + VERIFIED CALLER — Use the exact account data provided. Answer all balance/loan/transaction questions immediately. Zero re-verification required.")
-        if customer.full_name:
-            parts.append(f"Customer Name: {customer.full_name}")
+        """
+        Build a full plain-English account brief for the LLM system prompt.
+        Every field the LLM might need is spelled out explicitly so it never
+        has to say 'I don't have that information'.
+        """
+        lines = []
+
+        # ── Auth status ───────────────────────────────────────────────────────
         if customer.authenticated:
-            parts.append("Auth: ✓ VERIFIED via registered phone number — NO further verification needed. Provide ALL account details immediately without asking any security questions.")
-            if customer.account_balance is not None:
-                parts.append(f"Balance: ${customer.account_balance:,.2f}")
-            if customer.loan_accounts:
-                loans = ", ".join(
-                    f"{l.get('type','Loan')}: ${l.get('balance',0):,.2f}"
-                    for l in customer.loan_accounts[:3]
-                )
-                parts.append(f"Loans: {loans}")
+            lines.append("=== CUSTOMER ACCOUNT DATA (VERIFIED — USE THIS DATA DIRECTLY) ===")
+            lines.append("")
+            lines.append(f"Customer Name    : {customer.full_name or 'N/A'}")
+            lines.append(f"Account Number   : {customer.account_number or 'N/A'}")
+            lines.append(f"Phone            : {customer.phone or 'N/A'}")
+            lines.append(f"Auth Status      : FULLY VERIFIED via registered phone number")
+            lines.append(f"Source           : {getattr(customer, '_db_source', 'demo_registry')}")
+            lines.append("")
+
+            # ── Balances ──────────────────────────────────────────────────────
+            lines.append("--- ACCOUNT BALANCES (ALL IN US DOLLARS) ---")
+            checking = customer.account_balance or 0.0
+            savings  = getattr(customer, "savings_balance", None)
+            lines.append(f"Checking Account : ${checking:,.2f} USD")
+            if savings is not None:
+                lines.append(f"Savings Account  : ${savings:,.2f} USD")
+            lines.append(f"Total Deposits   : ${(checking + (savings or 0.0)):,.2f} USD")
+            lines.append("")
+
+            # ── Loans ─────────────────────────────────────────────────────────
+            loans = getattr(customer, "loan_accounts", []) or []
+            if loans:
+                lines.append("--- ACTIVE LOANS ---")
+                for loan in loans:
+                    lines.append(
+                        f"  {loan.get('type','Loan')}: "
+                        f"Balance ${loan.get('balance', 0):,.2f} USD | "
+                        f"Monthly payment ${loan.get('monthly_payment', 0):,.2f} USD | "
+                        f"Next due: {loan.get('due_date', 'N/A')} | "
+                        f"Status: {loan.get('status', 'current')}"
+                    )
+                lines.append("")
+
+            # ── Recent transactions ───────────────────────────────────────────
+            txns = getattr(customer, "recent_transactions", []) or []
+            if txns:
+                lines.append("--- RECENT TRANSACTIONS ---")
+                for t in txns:
+                    lines.append(
+                        f"  {t.get('date','')}: {t.get('desc','')} "
+                        f"{t.get('amount','')} USD"
+                    )
+                lines.append("")
+
+            # ── Fraud flags ───────────────────────────────────────────────────
+            fraud = getattr(customer, "fraud_flags", []) or []
+            if fraud:
+                lines.append(f"FRAUD ALERTS: {', '.join(fraud)}")
+                lines.append("")
+
+            lines.append("=== INSTRUCTIONS ===")
+            lines.append("- Answer every balance/loan/transaction question using the data above.")
+            lines.append("- Do NOT ask for any verification. Customer is already authenticated.")
+            lines.append("- Do NOT say 'I don't have access' or 'I cannot see your account'.")
+            lines.append("- Do NOT transfer to a human unless the customer explicitly requests it.")
+            lines.append("- All currency is US DOLLARS. Say 'dollars', never 'FET' or other currencies.")
+            lines.append("=== END OF ACCOUNT DATA ===")
+
         else:
-            parts.append("Auth: NOT VERIFIED — Ask ONLY for the last 4 digits of their account number. Do not ask for SSN, DOB, or full account number.")
-        if customer.fraud_flags:
-            parts.append(f"FRAUD ALERTS: {', '.join(customer.fraud_flags)}")
-        parts.append(f"Language: {customer.language}")
-        return "\n".join(parts)
+            lines.append("=== UNVERIFIED CALLER ===")
+            lines.append("Auth Status: NOT VERIFIED")
+            lines.append("Action: Ask ONLY for the last 4 digits of their account number.")
+            lines.append("Do NOT ask for full SSN, date of birth, or full account number.")
+            lines.append("Do NOT disclose any account balances or transaction data.")
+
+        lines.append(f"\nLanguage: {getattr(customer, 'language', 'en-US')}")
+        return "\n".join(lines)
 
     @abstractmethod
     async def handle_turn(

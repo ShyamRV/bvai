@@ -28,6 +28,7 @@ from decimal import Decimal
 from typing import Optional, Dict, List
 
 import redis.asyncio as aioredis
+from bank_db import BankDB
 from fastapi import FastAPI, Request, HTTPException, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse, FileResponse, HTMLResponse
@@ -87,6 +88,7 @@ _audit_log: List[dict] = []
 
 # ─── In-Memory Session Store (conversation history per call) ─────────────────
 _call_sessions: Dict[str, dict] = {}   # session_id -> {history, customer, agent}
+bank_db: Optional[BankDB] = None          # Live Supabase connection
 
 # ─── DEMO DATABASE ────────────────────────────────────────────────────────────
 # Shyam's registered phone is auto-authenticated with full account context.
@@ -215,43 +217,74 @@ DEMO_PHONE_REGISTRY: Dict[str, dict] = {
 
 def get_demo_customer(caller_phone: str):
     """
-    Look up caller in DEMO_PHONE_REGISTRY.
-    Returns a fully-populated CustomerContext for registered numbers,
-    or a generic unauthenticated context for unknown callers.
+    Look up caller — tries DEMO_PHONE_REGISTRY first for speed,
+    falls back to in-memory defaults.
     All balances are USD.
     """
     from agents.base_agent import CustomerContext
-    # Normalise: strip spaces, handle WhatsApp prefix
     phone = caller_phone.strip()
     data  = DEMO_PHONE_REGISTRY.get(phone)
     if not data:
-        # Try without country code prefix variations
         for key in DEMO_PHONE_REGISTRY:
             if phone.endswith(key.lstrip("+")) or key.endswith(phone.lstrip("+")):
                 data = DEMO_PHONE_REGISTRY[key]
                 break
     if data:
         return CustomerContext(
-            customer_id             = data["customer_id"],
-            account_number          = data["account_number"],
-            full_name               = data["full_name"],
-            phone                   = phone,
-            language                = data.get("language", "en-US"),
-            authenticated           = data["authenticated"],
-            account_balance         = data["account_balance"],
-            loan_accounts           = data.get("loan_accounts", []),
-            recent_transactions     = data.get("recent_transactions", []),
-            fraud_flags             = data.get("fraud_flags", []),
-            consent_recorded        = data.get("consent_recorded", True),
-            call_recording_consent  = data.get("call_recording_consent", True),
-            demo_mode               = True,
+            customer_id            = data["customer_id"],
+            account_number         = data["account_number"],
+            full_name              = data["full_name"],
+            phone                  = phone,
+            language               = data.get("language", "en-US"),
+            authenticated          = data["authenticated"],
+            account_balance        = data["account_balance"],
+            loan_accounts          = data.get("loan_accounts", []),
+            recent_transactions    = data.get("recent_transactions", []),
+            fraud_flags            = data.get("fraud_flags", []),
+            consent_recorded       = data.get("consent_recorded", True),
+            call_recording_consent = data.get("call_recording_consent", True),
+            demo_mode              = True,
         )
-    # Unknown caller — unauthenticated
-    return CustomerContext(
-        phone       = phone,
-        demo_mode   = True,
-        authenticated = False,
-    )
+    return CustomerContext(phone=phone, demo_mode=True, authenticated=False)
+
+
+async def get_customer_from_db(caller_phone: str):
+    """
+    Query Supabase live for caller data.
+    Falls back to get_demo_customer if DB unavailable or phone not found.
+    """
+    from agents.base_agent import CustomerContext
+    global bank_db
+
+    # Try live DB first
+    if bank_db and bank_db.is_connected:
+        try:
+            data = await bank_db.get_customer_by_phone(caller_phone)
+            if data:
+                ctx = CustomerContext(
+                    customer_id            = data["customer_id"],
+                    account_number         = data["account_number"],
+                    full_name              = data["full_name"],
+                    phone                  = data["phone"],
+                    authenticated          = True,
+                    account_balance        = data["account_balance"],
+                    loan_accounts          = data["loan_accounts"],
+                    recent_transactions    = data["recent_transactions"],
+                    fraud_flags            = data["fraud_flags"],
+                    consent_recorded       = True,
+                    call_recording_consent = True,
+                    demo_mode              = True,
+                )
+                # Store savings balance as attribute (not in dataclass by default)
+                ctx.savings_balance = data.get("savings_balance", 0.0)  # type: ignore
+                ctx._db_source = "supabase_live"                         # type: ignore
+                logger.info(f"✅ DB lookup: {data['full_name']} — ${data['account_balance']:,.2f} checking")
+                return ctx
+        except Exception as e:
+            logger.warning(f"DB lookup failed, falling back to demo: {e}")
+
+    # Fallback to in-memory demo data
+    return get_demo_customer(caller_phone)
 
 
 DEMO_SYSTEM_SUFFIX = """
@@ -362,7 +395,7 @@ async def get_subscription(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global orchestrator, session_manager, redis_client, payment_gateway
+    global orchestrator, session_manager, redis_client, payment_gateway, bank_db
 
     logger.info("BankVoiceAI v2 starting...")
 
@@ -376,6 +409,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Redis unavailable: {e}")
         redis_client = None
+
+    # BankDB — live Supabase customer data
+    try:
+        bank_db = BankDB(settings.database_url)
+        await bank_db.connect()
+        if bank_db.is_connected:
+            logger.info("✅ BankDB live — Supabase connected")
+        else:
+            logger.warning("BankDB offline — using in-memory demo data")
+    except Exception as e:
+        logger.warning(f"BankDB init error: {e}")
+        bank_db = None
 
     # Payment Gateway — with PostgreSQL persistence
     try:
@@ -441,6 +486,8 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("BankVoiceAI v2 shutting down...")
+    if bank_db:
+        await bank_db.close()
     if payment_gateway:
         try:
             if payment_gateway.db is not None:
@@ -1312,8 +1359,8 @@ async def voice_inbound(request: Request):
     call_sid = form.get("CallSid", str(uuid.uuid4())) if hasattr(form, "get") else str(uuid.uuid4())
     base     = str(request.base_url).rstrip("/")
 
-    # ── Demo: look up caller, build full authenticated CustomerContext ──────
-    customer = get_demo_customer(caller)
+    # ── Live DB lookup: Supabase → fallback to demo registry ────────────
+    customer = await get_customer_from_db(caller)
     _call_sessions[call_sid] = {
         "history":  [],
         "customer": customer,
@@ -1371,7 +1418,13 @@ async def voice_gather(session_id: str, request: Request):
 
             # ── Retrieve or rebuild session ───────────────────────────────
             sess     = _call_sessions.get(session_id, {})
-            customer = sess.get("customer") or get_demo_customer("unknown")
+            # Re-query DB if session lost (e.g. Railway restart mid-call)
+            _stored = sess.get("customer")
+            if _stored:
+                customer = _stored
+            else:
+                caller_phone = sess.get("caller", "unknown")
+                customer = await get_customer_from_db(caller_phone)
             history  = sess.get("history", [])
             current  = sess.get("agent", "customer_service")
 
@@ -1468,17 +1521,16 @@ async def whatsapp_inbound(request: Request):
         try:
             from agents.base_agent import CustomerContext, ConversationTurn
 
-            # ── Demo customer lookup ──────────────────────────────────────
-            customer = get_demo_customer(from_number)
-
-            # ── Persistent WhatsApp session ───────────────────────────────
+            # ── Live DB lookup for WhatsApp caller ───────────────────────
             if session_id not in _call_sessions:
+                customer = await get_customer_from_db(from_number)
                 _call_sessions[session_id] = {
                     "history":  [],
                     "customer": customer,
                     "agent":    "customer_service",
                     "caller":   from_number,
                 }
+            customer = _call_sessions[session_id]["customer"]
             sess    = _call_sessions[session_id]
             history = sess.get("history", [])
             current = sess.get("agent", "customer_service")
