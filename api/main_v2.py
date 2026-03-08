@@ -219,16 +219,46 @@ async def _get_api_key(
     return key
 
 
+
+# ─── Demo / Hardcoded Subscriptions ──────────────────────────────────────────
+# These are always valid regardless of DB state.
+# Add any new tenants here after they pay.
+
+DEMO_SUBSCRIPTIONS: Dict[str, dict] = {
+    "bvai_2f2163c92ad998c5778e1a3c77ddda0e3795d842": {
+        "tenant_id":           "bank_fcb_001",
+        "bank_name":           "First Community Bank",
+        "plan":                "growth",
+        "status":              "active",
+        "api_key":             "bvai_2f2163c92ad998c5778e1a3c77ddda0e3795d842",
+        "agents_enabled":      ["customer_service","fraud_detection","onboarding","collections","sales","compliance"],
+        "calls_today":         0,
+        "calls_remaining_today": 2000,
+        "days_until_expiry":   365,
+        "expires_at":          "2027-03-08T00:00:00Z",
+        "last_payment_hash":   "DEMO_ACTIVE_SUBSCRIPTION",
+        "whatsapp":            True,
+        "analytics_days":      90,
+    },
+}
+
+
 async def get_subscription(
     request:     Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> dict:
     """
     FastAPI dependency: validates API key, returns subscription dict.
-    Now checks PostgreSQL via payment_gateway (survives restarts).
+    Priority:  1. DEMO_SUBSCRIPTIONS (always valid, no DB needed)
+               2. payment_gateway DB lookup (for real paying customers)
     """
     api_key = await _get_api_key(request, credentials)
 
+    # 1 — Check demo/hardcoded subscriptions first
+    if api_key in DEMO_SUBSCRIPTIONS:
+        return DEMO_SUBSCRIPTIONS[api_key]
+
+    # 2 — Check payment gateway DB
     if payment_gateway:
         sub = await payment_gateway.get_subscription_by_api_key(api_key)
         if sub and sub.is_active():
