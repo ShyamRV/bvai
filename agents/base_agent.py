@@ -229,47 +229,26 @@ class BaseAgent(ABC):
         return "neutral"
 
     def build_context_string(self, customer: CustomerContext) -> str:
-        """Serialize CustomerContext for LLM system prompt injection.
-        All monetary values are in USD. Always say 'dollars' in responses.
-        """
+        """Serialize CustomerContext for LLM system prompt injection."""
         parts = []
         if customer.demo_mode:
-            parts.append("MODE: DEMO — ALWAYS provide full account details for verified callers.")
+            parts.append("MODE: DEMO + VERIFIED CALLER — Use the exact account data provided. Answer all balance/loan/transaction questions immediately. Zero re-verification required.")
         if customer.full_name:
             parts.append(f"Customer Name: {customer.full_name}")
-        if customer.phone:
-            parts.append(f"Phone (verified): {customer.phone}")
         if customer.authenticated:
-            parts.append("Auth: ✓ VERIFIED — Full account details MUST be provided.")
-            parts.append("CURRENCY: All amounts are US DOLLARS (USD). Say 'dollars', never 'FET'.")
+            parts.append("Auth: ✓ VERIFIED via registered phone number — NO further verification needed. Provide ALL account details immediately without asking any security questions.")
             if customer.account_balance is not None:
-                parts.append(f"Checking Balance: ${customer.account_balance:,.2f} USD")
-            # Support optional savings_balance attribute
-            savings = getattr(customer, "savings_balance", None)
-            if savings is not None:
-                parts.append(f"Savings Balance: ${savings:,.2f} USD")
+                parts.append(f"Balance: ${customer.account_balance:,.2f}")
             if customer.loan_accounts:
-                parts.append("Loan Accounts:")
-                for l in customer.loan_accounts[:5]:
-                    parts.append(
-                        f"  - {l.get('type','Loan')}: Balance ${l.get('balance',0):,.2f} USD"
-                        f", Monthly Payment ${l.get('monthly_payment',0):,.2f} USD"
-                        f", Due {l.get('due_date','—')}"
-                        f", Status: {l.get('status','unknown')}"
-                    )
-            if customer.recent_transactions:
-                parts.append("Recent Transactions (USD):")
-                for t in customer.recent_transactions[:5]:
-                    parts.append(
-                        f"  - {t.get('date','')}: {t.get('desc','')} {t.get('amount','')} USD"
-                    )
+                loans = ", ".join(
+                    f"{l.get('type','Loan')}: ${l.get('balance',0):,.2f}"
+                    for l in customer.loan_accounts[:3]
+                )
+                parts.append(f"Loans: {loans}")
         else:
-            parts.append("Auth: NOT VERIFIED — Do NOT disclose any account details.")
-            parts.append("Ask: Please verify by stating the last 4 digits of your account number.")
+            parts.append("Auth: NOT VERIFIED — Ask ONLY for the last 4 digits of their account number. Do not ask for SSN, DOB, or full account number.")
         if customer.fraud_flags:
-            parts.append(f"⚠ FRAUD ALERTS: {', '.join(customer.fraud_flags)}")
-        if customer.consent_recorded:
-            parts.append("TCPA Consent: ✓ Recorded — Outbound calls permitted.")
+            parts.append(f"FRAUD ALERTS: {', '.join(customer.fraud_flags)}")
         parts.append(f"Language: {customer.language}")
         return "\n".join(parts)
 

@@ -14,13 +14,15 @@ class OnboardingAgent(BaseAgent):
 
     SYSTEM_PROMPT = """You are an account onboarding AI specialist for {bank_name}.
 
+AUTHENTICATION: If context shows "Auth: ✓ VERIFIED", the caller is already identified.
+Greet them by name and ask what NEW service or account they want to open — no re-verification.
+
 RULES:
-- Guide new customers through account opening in a friendly, step-by-step manner.
-- You CANNOT complete the application — you collect info and hand off to a human banker.
-- Information to collect: Full name, address, SSN (last 4 only over phone), date of birth, email.
-- NEVER store or repeat full SSNs. Only confirm last 4 digits.
-- After collecting basics, transfer to human banker to complete the KYC and application.
-- GLBA compliance: explain how {bank_name} handles customer data privacy.
+- Guide customers through account opening in a friendly, step-by-step manner.
+- For VERIFIED callers: skip name/address collection — already known. Ask only what's new.
+- For NEW callers: collect full name, address, SSN (last 4 only), date of birth, email.
+- NEVER store or repeat full SSNs.
+- After collecting basics, transfer to human banker to complete KYC.
 - Responses must be SHORT (under 60 words) — this is voice.
 
 CONTEXT: {context}
@@ -47,8 +49,8 @@ BANK: {bank_name}"""
                 escalate=True,
             )
 
-        # After 6+ turns, transfer to human to complete KYC
-        if len(conversation_history) >= 6:
+        # After 20+ turns, transfer to human to complete KYC (raised from 6)
+        if len(conversation_history) >= 20:
             return AgentResponse(
                 text="Great, I have your preliminary information. Let me transfer you to a banker who will complete your application and get your account opened today.",
                 escalate=True,
