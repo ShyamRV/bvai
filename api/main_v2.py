@@ -674,19 +674,52 @@ async def request_refund(request: Request, sub: dict = Depends(get_subscription)
 @app.get("/api/v2/subscription")
 async def get_subscription_details(sub: dict = Depends(get_subscription)):
     return {
-        "tenant_id":        sub["tenant_id"],
-        "bank_name":        sub["bank_name"],
-        "plan":             sub["plan"],
-        "plan_name":        PLAN_CONFIG[sub["plan"]]["name"],
-        "status":           sub["status"],
-        "is_active":        sub.get("is_active", False),
-        "expires_at":       sub["expires_at"],
-        "days_until_expiry": sub.get("days_until_expiry", 0),
-        "agents_enabled":   sub["agents_enabled"],
-        "calls_today":      sub["calls_today"],
-        "calls_per_day":    PLAN_CONFIG[sub["plan"]]["calls_per_day"],
-        "calls_remaining_today": sub.get("calls_remaining_today", 0),
-        "compliance_mode":  sub["compliance_mode"],
+        "tenant_id":             sub["tenant_id"],
+        "bank_name":             sub.get("bank_name", sub["tenant_id"]),
+        "plan":                  sub["plan"],
+        "plan_name":             PLAN_CONFIG.get(sub["plan"], {}).get("name", sub["plan"]),
+        "status":                sub.get("status", "active"),
+        "is_active":             True,
+        "expires_at":            sub.get("expires_at", "2027-01-01T00:00:00Z"),
+        "days_until_expiry":     sub.get("days_until_expiry", 365),
+        "agents_enabled":        sub.get("agents_enabled", []),
+        "calls_today":           sub.get("calls_today", 0),
+        "calls_per_day":         PLAN_CONFIG.get(sub["plan"], {}).get("calls_per_day", 500),
+        "calls_remaining_today": sub.get("calls_remaining_today", 2000),
+        "compliance_mode":       sub.get("compliance_mode", "strict"),
+        "last_payment_hash":     sub.get("last_payment_hash", ""),
+    }
+
+
+@app.get("/api/v2/subscription/status")
+async def get_subscription_status(
+    tenant_id: str,
+    request:   Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """
+    Portal login endpoint — called with ?tenant_id=... and X-BankVoiceAI-Key header.
+    Returns full subscription info or 401.
+    """
+    sub = await get_subscription(request, credentials)
+    # Verify tenant_id matches the key
+    if sub.get("tenant_id") != tenant_id:
+        raise HTTPException(401, "API key does not match tenant ID.")
+    return {
+        "tenant_id":             sub["tenant_id"],
+        "bank_name":             sub.get("bank_name", sub["tenant_id"]),
+        "plan":                  sub["plan"],
+        "plan_name":             PLAN_CONFIG.get(sub["plan"], {}).get("name", sub["plan"]),
+        "status":                sub.get("status", "active"),
+        "is_active":             True,
+        "expires_at":            sub.get("expires_at", "2027-01-01T00:00:00Z"),
+        "days_until_expiry":     sub.get("days_until_expiry", 365),
+        "agents_enabled":        sub.get("agents_enabled", []),
+        "calls_today":           sub.get("calls_today", 0),
+        "calls_per_day":         PLAN_CONFIG.get(sub["plan"], {}).get("calls_per_day", 500),
+        "calls_remaining_today": sub.get("calls_remaining_today", 2000),
+        "compliance_mode":       sub.get("compliance_mode", "strict"),
+        "last_payment_hash":     sub.get("last_payment_hash", ""),
     }
 
 
