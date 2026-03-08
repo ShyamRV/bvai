@@ -117,6 +117,76 @@ DEMO_PHONE_REGISTRY: Dict[str, dict] = {
         "consent_recorded": True,
         "call_recording_consent": True,
     },
+    # ── Shyam Reddy — Mobile number 2 ──────────────────────────────────
+    "+918431439772": {
+        "customer_id":    "CUST-001",
+        "account_number": "****4821",
+        "full_name":      "Shyam Reddy",
+        "language":       "en-US",
+        "authenticated":  True,
+        "account_balance": 24_750.00,
+        "savings_balance": 58_320.50,
+        "loan_accounts": [
+            {"type": "Auto Loan",    "balance": 14_200.00,  "monthly_payment": 412.00,  "due_date": "March 20, 2026",  "status": "current"},
+            {"type": "Home Equity",  "balance": 87_500.00,  "monthly_payment": 1_140.00,"due_date": "March 25, 2026",  "status": "current"},
+        ],
+        "recent_transactions": [
+            {"date": "Mar 07 2026", "desc": "Direct Deposit — Fetch.ai",    "amount": "+$8,500.00",  "type": "credit"},
+            {"date": "Mar 06 2026", "desc": "Amazon.com",                    "amount": "-$127.43",    "type": "debit"},
+            {"date": "Mar 05 2026", "desc": "Auto Loan Payment",             "amount": "-$412.00",    "type": "debit"},
+            {"date": "Mar 04 2026", "desc": "Starbucks",                     "amount": "-$8.75",      "type": "debit"},
+            {"date": "Mar 03 2026", "desc": "Wire Transfer — Client",        "amount": "+$3,200.00",  "type": "credit"},
+        ],
+        "fraud_flags":    [],
+        "consent_recorded": True,
+        "call_recording_consent": True,
+    },
+    "8431439772": {   # short form fallback
+        "customer_id":    "CUST-001",
+        "account_number": "****4821",
+        "full_name":      "Shyam Reddy",
+        "language":       "en-US",
+        "authenticated":  True,
+        "account_balance": 24_750.00,
+        "savings_balance": 58_320.50,
+        "loan_accounts": [
+            {"type": "Auto Loan",    "balance": 14_200.00,  "monthly_payment": 412.00,  "due_date": "March 20, 2026",  "status": "current"},
+            {"type": "Home Equity",  "balance": 87_500.00,  "monthly_payment": 1_140.00,"due_date": "March 25, 2026",  "status": "current"},
+        ],
+        "recent_transactions": [
+            {"date": "Mar 07 2026", "desc": "Direct Deposit — Fetch.ai",    "amount": "+$8,500.00",  "type": "credit"},
+            {"date": "Mar 06 2026", "desc": "Amazon.com",                    "amount": "-$127.43",    "type": "debit"},
+            {"date": "Mar 05 2026", "desc": "Auto Loan Payment",             "amount": "-$412.00",    "type": "debit"},
+            {"date": "Mar 04 2026", "desc": "Starbucks",                     "amount": "-$8.75",      "type": "debit"},
+            {"date": "Mar 03 2026", "desc": "Wire Transfer — Client",        "amount": "+$3,200.00",  "type": "credit"},
+        ],
+        "fraud_flags":    [],
+        "consent_recorded": True,
+        "call_recording_consent": True,
+    },
+    "whatsapp:+918431439772": {  # WhatsApp variant
+        "customer_id":    "CUST-001",
+        "account_number": "****4821",
+        "full_name":      "Shyam Reddy",
+        "language":       "en-US",
+        "authenticated":  True,
+        "account_balance": 24_750.00,
+        "savings_balance": 58_320.50,
+        "loan_accounts": [
+            {"type": "Auto Loan",    "balance": 14_200.00,  "monthly_payment": 412.00,  "due_date": "March 20, 2026",  "status": "current"},
+            {"type": "Home Equity",  "balance": 87_500.00,  "monthly_payment": 1_140.00,"due_date": "March 25, 2026",  "status": "current"},
+        ],
+        "recent_transactions": [
+            {"date": "Mar 07 2026", "desc": "Direct Deposit — Fetch.ai",    "amount": "+$8,500.00",  "type": "credit"},
+            {"date": "Mar 06 2026", "desc": "Amazon.com",                    "amount": "-$127.43",    "type": "debit"},
+            {"date": "Mar 05 2026", "desc": "Auto Loan Payment",             "amount": "-$412.00",    "type": "debit"},
+            {"date": "Mar 04 2026", "desc": "Starbucks",                     "amount": "-$8.75",      "type": "debit"},
+            {"date": "Mar 03 2026", "desc": "Wire Transfer — Client",        "amount": "+$3,200.00",  "type": "credit"},
+        ],
+        "fraud_flags":    [],
+        "consent_recorded": True,
+        "call_recording_consent": True,
+    },
     # WhatsApp sends "whatsapp:+91..." prefix — strip it automatically (see get_demo_customer)
     "whatsapp:+917893924878": {  # same as above, WhatsApp variant
         "customer_id":    "CUST-001",
@@ -1055,6 +1125,164 @@ async def set_escalation_policy(
     return {"success": True, "policy": body.model_dump()}
 
 
+# ─── DB Connection Manager (Demo Simulation) ─────────────────────────────────
+
+class DbTestRequest(BaseModel):
+    db_type:  str = "PostgreSQL"
+    host:     str = ""
+    port:     int = 5432
+    database: str = ""
+    username: str = ""
+    name:     str = ""
+
+# Simulated demo schema — mirrors a real core banking DB
+DEMO_SCHEMA = {
+    "tables": [
+        {
+            "name": "accounts",
+            "rows": 847_293,
+            "columns": 14,
+            "classification": "NPI",             # GLBA Non-Public Information
+            "glba_restricted": True,
+            "sample_cols": ["account_id","customer_id","balance_usd","account_type","opened_date","status","branch_id","interest_rate","overdraft_limit","last_activity"],
+        },
+        {
+            "name": "customers",
+            "rows": 312_847,
+            "columns": 18,
+            "classification": "NPI",
+            "glba_restricted": True,
+            "sample_cols": ["customer_id","full_name","ssn_last4","dob","phone","email","address","city","state","zip","kyc_status","risk_score"],
+        },
+        {
+            "name": "transactions",
+            "rows": 2_184_921,
+            "columns": 10,
+            "classification": "Sensitive",
+            "glba_restricted": True,
+            "sample_cols": ["txn_id","account_id","amount_usd","type","merchant","timestamp","channel","status","reference","notes"],
+        },
+        {
+            "name": "loans",
+            "rows": 94_102,
+            "columns": 12,
+            "classification": "NPI",
+            "glba_restricted": True,
+            "sample_cols": ["loan_id","customer_id","principal_usd","rate_pct","term_months","monthly_payment_usd","due_date","status","collateral","origination_date"],
+        },
+        {
+            "name": "products",
+            "rows": 47,
+            "columns": 8,
+            "classification": "Public",
+            "glba_restricted": False,
+            "sample_cols": ["product_id","name","type","apr","min_balance","fdic_insured","active","description"],
+        },
+        {
+            "name": "tcpa_consent",
+            "rows": 198_441,
+            "columns": 7,
+            "classification": "Compliance",
+            "glba_restricted": True,
+            "sample_cols": ["phone","consent_type","consent_date","opt_out_date","channel","agent_id","verified"],
+        },
+    ]
+}
+
+@app.post("/api/v2/db/test")
+async def test_db_connection(
+    body: DbTestRequest,
+    sub:  dict = Depends(get_subscription),
+):
+    """
+    Simulate a DB connection test.
+    In demo mode: returns realistic latency, TLS info, table counts.
+    In production: would use asyncpg/aiomysql to actually connect.
+    """
+    import random, asyncio
+    await asyncio.sleep(0.8)   # simulate real connection time
+
+    host = body.host or "db.yourinstitution.internal"
+    db   = body.database or "corebank"
+
+    return {
+        "success":       True,
+        "latency_ms":    round(random.uniform(2.8, 6.4), 1),
+        "tls_version":   "TLS 1.3",
+        "tls_cipher":    "TLS_AES_256_GCM_SHA384",
+        "access_mode":   "READ ONLY",
+        "db_version":    f"{body.db_type} 15.4" if body.db_type == "PostgreSQL" else f"{body.db_type} 8.0",
+        "host":          host,
+        "database":      db,
+        "tables_found":  len(DEMO_SCHEMA["tables"]),
+        "total_rows":    sum(t["rows"] for t in DEMO_SCHEMA["tables"]),
+        "glba_tables":   sum(1 for t in DEMO_SCHEMA["tables"] if t["glba_restricted"]),
+        "schema":        DEMO_SCHEMA["tables"],
+        "message":       f"✓ Connected to {host}/{db} · Read-only verified · GLBA NPI tagging ready",
+        "logged_to_audit": True,
+    }
+
+
+@app.get("/api/v2/db/schema")
+async def get_db_schema_live(sub: dict = Depends(get_subscription)):
+    """Return the simulated schema for the connected core banking DB."""
+    return {
+        "connected":    True,
+        "connection":   "Core Banking — PostgreSQL",
+        "schema":       DEMO_SCHEMA["tables"],
+        "last_sync":    datetime.now(timezone.utc).isoformat(),
+        "glba_mode":    "NPI_STRICT",
+    }
+
+
+@app.get("/api/v2/db/connections")
+async def list_db_connections(sub: dict = Depends(get_subscription)):
+    """List all configured DB connections for this tenant."""
+    return {
+        "connections": [
+            {
+                "id":              "conn_001",
+                "name":            "Core Banking — PostgreSQL",
+                "db_type":         "PostgreSQL",
+                "host":            "cbs-prod.bank.internal",
+                "port":            5432,
+                "database":        "corebank",
+                "status":          "live",
+                "latency_ms":      4.2,
+                "tls":             "TLS 1.3",
+                "access_mode":     "READ ONLY",
+                "glba_tagged":     True,
+                "tables":          6,
+                "rows_accessible": 3_637_655,
+                "last_check":      datetime.now(timezone.utc).isoformat(),
+                "version_history": [
+                    {"v": "v3", "by": "admin@bank.com", "note": "Added TLS cert",       "ts": "2026-03-04 08:22 EST", "active": True},
+                    {"v": "v2", "by": "admin@bank.com", "note": "Schema mapper update", "ts": "2026-02-18 14:45 EST", "active": False},
+                    {"v": "v1", "by": "admin@bank.com", "note": "Initial setup",         "ts": "2026-01-12 09:00 EST", "active": False},
+                ],
+            },
+            {
+                "id":          "conn_002",
+                "name":        "CRM — MySQL",
+                "db_type":     "MySQL",
+                "host":        "crm-db.bank.internal",
+                "port":        3306,
+                "database":    "bankcrm",
+                "status":      "idle",
+                "latency_ms":  None,
+                "tls":         "TLS 1.2",
+                "access_mode": "READ ONLY",
+                "glba_tagged": False,
+                "tables":      3,
+                "last_check":  None,
+                "version_history": [
+                    {"v": "v1", "by": "admin@bank.com", "note": "Initial setup", "ts": "2026-02-01 11:00 EST", "active": True},
+                ],
+            },
+        ]
+    }
+
+
 # ─── Voice Webhooks (Twilio) ──────────────────────────────────────────────────
 
 @app.post("/voice/inbound", response_class=Response)
@@ -1321,6 +1549,160 @@ async def metrics():
         "fetch_wallet":         settings.fetch_payment_wallet or "NOT SET",
         "network":              "mainnet" if settings.fetch_use_mainnet else "testnet",
     }
+
+
+
+# ─── DB Connection Manager — Simulation API ───────────────────────────────────
+# In-memory store (resets on server restart — for demo/video purposes)
+
+_db_connections: Dict[str, dict] = {
+    "conn_001": {
+        "id":          "conn_001",
+        "name":        "Core Banking — PostgreSQL",
+        "db_type":     "PostgreSQL",
+        "host":        "cbs-prod.bank.internal",
+        "port":        5432,
+        "database":    "corebank",
+        "username":    "bvai_readonly",
+        "status":      "live",
+        "tls":         "TLS 1.3",
+        "access":      "Read-only",
+        "latency_ms":  4.2,
+        "last_sync":   "2 minutes ago",
+        "version":     "PostgreSQL 15.4",
+        "glba_tagged": True,
+        "schema": [
+            {"table": "accounts",     "columns": 12, "rows": "847K", "classification": "NPI",      "enabled": True},
+            {"table": "transactions", "columns": 8,  "rows": "2.1M", "classification": "Sensitive", "enabled": True},
+            {"table": "customers",    "columns": 18, "rows": "312K", "classification": "NPI",      "enabled": True},
+            {"table": "loans",        "columns": 14, "rows": "94K",  "classification": "NPI",      "enabled": True},
+            {"table": "products",     "columns": 6,  "rows": "124",  "classification": "Public",   "enabled": True},
+            {"table": "branches",     "columns": 9,  "rows": "48",   "classification": "Public",   "enabled": False},
+        ],
+        "versions": [
+            {"version": "v3 (current)", "changed_by": "admin@bank.com", "summary": "SSL cert rotation",     "ts": "2026-03-04 08:22 EST", "active": True},
+            {"version": "v2",           "changed_by": "admin@bank.com", "summary": "Schema mapper NPI tags", "ts": "2026-02-18 14:45 EST", "active": False},
+            {"version": "v1",           "changed_by": "admin@bank.com", "summary": "Initial connection",     "ts": "2026-01-12 09:00 EST", "active": False},
+        ],
+    },
+    "conn_002": {
+        "id":          "conn_002",
+        "name":        "CRM — MySQL",
+        "db_type":     "MySQL",
+        "host":        "crm-db.bank.internal",
+        "port":        3306,
+        "database":    "customers",
+        "username":    "bvai_readonly",
+        "status":      "idle",
+        "tls":         "TLS 1.3",
+        "access":      "Read-only",
+        "latency_ms":  None,
+        "last_sync":   "3 hours ago",
+        "version":     "MySQL 8.0.32",
+        "glba_tagged": True,
+        "schema": [
+            {"table": "crm_contacts", "columns": 22, "rows": "312K", "classification": "NPI",      "enabled": True},
+            {"table": "interactions", "columns": 10, "rows": "1.8M", "classification": "Sensitive", "enabled": False},
+            {"table": "campaigns",    "columns": 8,  "rows": "2.1K", "classification": "Public",   "enabled": False},
+        ],
+        "versions": [
+            {"version": "v2 (current)", "changed_by": "admin@bank.com", "summary": "CRM NPI tagging",    "ts": "2026-02-22 11:10 EST", "active": True},
+            {"version": "v1",           "changed_by": "admin@bank.com", "summary": "Initial connection",  "ts": "2026-01-20 14:00 EST", "active": False},
+        ],
+    },
+}
+
+
+class DbConnectionBody(BaseModel):
+    name:     str
+    db_type:  str = "PostgreSQL"
+    host:     str
+    port:     int = 5432
+    database: str
+    username: str
+    password: str = ""
+
+
+@app.get("/api/v2/db/connections")
+async def list_db_connections(sub: dict = Depends(get_subscription)):
+    return {
+        "connections": [{k: v for k, v in c.items() if k != "password"} for c in _db_connections.values()],
+        "total": len(_db_connections),
+    }
+
+
+@app.post("/api/v2/db/connections")
+async def add_db_connection(body: DbConnectionBody, sub: dict = Depends(get_subscription)):
+    import random, string
+    conn_id = "conn_" + "".join(random.choices(string.digits, k=3))
+    _db_connections[conn_id] = {
+        "id": conn_id, "name": body.name, "db_type": body.db_type,
+        "host": body.host, "port": body.port, "database": body.database,
+        "username": body.username, "status": "pending", "tls": "TLS 1.3",
+        "access": "Read-only", "latency_ms": None, "last_sync": "never",
+        "version": body.db_type, "glba_tagged": False, "schema": [],
+        "versions": [{"version": "v1 (current)", "changed_by": sub.get("bank_name","admin"),
+                      "summary": "Initial connection",
+                      "ts": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M EST"), "active": True}],
+    }
+    _audit_log.append({"event": "db_connection_added", "conn_id": conn_id, "name": body.name,
+                        "tenant_id": sub["tenant_id"], "timestamp": datetime.now(timezone.utc).isoformat()})
+    return {"ok": True, "conn_id": conn_id, "message": f"Connection '{body.name}' saved. Credentials AES-256 encrypted."}
+
+
+@app.post("/api/v2/db/connections/{conn_id}/test")
+async def test_db_connection(conn_id: str, sub: dict = Depends(get_subscription)):
+    import asyncio, random
+    conn = _db_connections.get(conn_id)
+    if not conn:
+        raise HTTPException(404, f"Connection '{conn_id}' not found.")
+    await asyncio.sleep(1.5)
+    latency = round(random.uniform(2.8, 8.4), 1)
+    _db_connections[conn_id]["latency_ms"] = latency
+    _db_connections[conn_id]["status"] = "live"
+    _db_connections[conn_id]["last_sync"] = "just now"
+    _audit_log.append({"event": "db_connection_tested", "conn_id": conn_id, "name": conn["name"],
+                        "latency_ms": latency, "result": "success",
+                        "tenant_id": sub["tenant_id"], "timestamp": datetime.now(timezone.utc).isoformat()})
+    return {"ok": True, "conn_id": conn_id, "name": conn["name"], "latency_ms": latency,
+            "tls": "TLS 1.3", "access": "Read-only confirmed", "db_version": conn.get("version", conn["db_type"]),
+            "message": f"Connection successful · {latency}ms · TLS 1.3 verified · Read-only confirmed"}
+
+
+@app.delete("/api/v2/db/connections/{conn_id}")
+async def delete_db_connection(conn_id: str, sub: dict = Depends(get_subscription)):
+    conn = _db_connections.pop(conn_id, None)
+    if not conn:
+        raise HTTPException(404, f"Connection '{conn_id}' not found.")
+    _audit_log.append({"event": "db_connection_removed", "conn_id": conn_id, "name": conn["name"],
+                        "tenant_id": sub["tenant_id"], "timestamp": datetime.now(timezone.utc).isoformat()})
+    return {"ok": True, "message": f"Connection '{conn['name']}' disconnected and removed."}
+
+
+@app.get("/api/v2/db/connections/{conn_id}/schema")
+async def get_db_schema_map(conn_id: str, sub: dict = Depends(get_subscription)):
+    conn = _db_connections.get(conn_id)
+    if not conn:
+        raise HTTPException(404, f"Connection '{conn_id}' not found.")
+    return {"conn_id": conn_id, "name": conn["name"], "schema": conn.get("schema", []), "glba_tagged": conn.get("glba_tagged", False)}
+
+
+@app.post("/api/v2/db/connections/{conn_id}/rollback")
+async def rollback_db_config(conn_id: str, sub: dict = Depends(get_subscription)):
+    conn = _db_connections.get(conn_id)
+    if not conn:
+        raise HTTPException(404, f"Connection '{conn_id}' not found.")
+    versions = conn.get("versions", [])
+    active_idx = next((i for i, v in enumerate(versions) if v["active"]), 0)
+    if active_idx >= len(versions) - 1:
+        raise HTTPException(400, "Already at the oldest version.")
+    versions[active_idx]["active"] = False
+    versions[active_idx + 1]["active"] = True
+    conn["versions"] = versions
+    rolled_to = versions[active_idx + 1]["version"]
+    _audit_log.append({"event": "db_config_rollback", "conn_id": conn_id, "rolled_to": rolled_to,
+                        "tenant_id": sub["tenant_id"], "timestamp": datetime.now(timezone.utc).isoformat()})
+    return {"ok": True, "rolled_to": rolled_to, "message": f"Rolled back to {rolled_to}"}
 
 
 if __name__ == "__main__":
