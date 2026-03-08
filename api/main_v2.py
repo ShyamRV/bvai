@@ -30,8 +30,9 @@ from typing import Optional, Dict, List
 import redis.asyncio as aioredis
 from fastapi import FastAPI, Request, HTTPException, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, JSONResponse
+from fastapi.responses import Response, JSONResponse, FileResponse, HTMLResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -269,12 +270,19 @@ async def lifespan(app: FastAPI):
             db_url         = settings.database_url,
             use_mainnet    = settings.fetch_use_mainnet,
         )
-        await payment_gateway.db.connect()
-        # Load all persisted subscriptions into memory on startup
-        active = await payment_gateway.db.load_all_active()
-        for sub in active:
-            payment_gateway.subscriptions[sub.tenant_id] = sub
-        logger.info(f"✅ Payment Gateway online | {len(active)} subscriptions loaded")
+        # Try to connect to DB — non-fatal if unavailable (Railway env may not have PG)
+        if payment_gateway.db is not None:
+            try:
+                await payment_gateway.db.connect()
+                active = await payment_gateway.db.load_all_active()
+                for sub in active:
+                    payment_gateway.subscriptions[sub.tenant_id] = sub
+                logger.info(f"✅ Payment Gateway online | {len(active)} subscriptions loaded from DB")
+            except Exception as db_err:
+                logger.warning(f"Payment gateway DB unavailable (in-memory mode): {db_err}")
+                logger.info("✅ Payment Gateway online | In-memory mode (no DB persistence)")
+        else:
+            logger.info("✅ Payment Gateway online | In-memory mode")
     except Exception as e:
         logger.warning(f"Payment gateway init error: {e}")
 
@@ -317,8 +325,16 @@ async def lifespan(app: FastAPI):
 
     logger.info("BankVoiceAI v2 shutting down...")
     if payment_gateway:
-        await payment_gateway.db.close()
-        await payment_gateway.ledger.close()
+        try:
+            if payment_gateway.db is not None:
+                await payment_gateway.db.close()
+        except Exception:
+            pass
+        try:
+            if payment_gateway.ledger is not None:
+                await payment_gateway.ledger.close()
+        except Exception:
+            pass
 
 
 app = FastAPI(
@@ -333,6 +349,29 @@ app.add_middleware(
     allow_methods  = ["*"],
     allow_headers  = ["*"],
 )
+
+# ─── Static Files (Portal UI) ─────────────────────────────────────────────────
+import os as _os
+_static_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "static")
+_index_path = _os.path.join(_static_dir, "index.html")
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def serve_root():
+    """Serve the BankVoiceAI portal (index.html)."""
+    if _os.path.exists(_index_path):
+        with open(_index_path, encoding="utf-8") as _f:
+            return HTMLResponse(content=_f.read())
+    return HTMLResponse(content="<h1>BankVoiceAI API v3</h1><p>Portal not found. Deploy index.html to api/static/index.html</p>")
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    fav = _os.path.join(_static_dir, "favicon.ico")
+    if _os.path.exists(fav):
+        return FileResponse(fav)
+    return Response(status_code=204)
+
+if _os.path.exists(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────
@@ -432,7 +471,7 @@ async def initiate_payment(body: PaymentInitiateRequest):
 
     if plan == "pilot":
         if not payment_gateway:
-            raise HTTPException(503, "Payment gateway not available")
+            raise HTTPException(503, detail={"error": "Payment gateway starting up. Please retry in 10 seconds.", "code": "GATEWAY_INIT"})
         sub = await payment_gateway.create_pilot_subscription(body.tenant_id, body.bank_name)
         return {
             "type":           "pilot",
@@ -498,7 +537,7 @@ async def verify_payment(body: PaymentVerifyRequest):
     if not settings.fetch_payment_wallet:
         raise HTTPException(503, "FETCH_PAYMENT_WALLET not configured in .env")
     if not payment_gateway:
-        raise HTTPException(503, "Payment gateway not available")
+        raise HTTPException(503, detail={"error": "Payment gateway starting up. Please retry in 10 seconds.", "code": "GATEWAY_INIT"})
 
     cfg  = PLAN_CONFIG[plan]
     memo = f"BANKVOICEAI|{body.tenant_id}|{plan}"
@@ -554,7 +593,7 @@ async def verify_payment(body: PaymentVerifyRequest):
 async def payment_status(tx_hash: str):
     """Poll payment status by TX hash."""
     if not payment_gateway:
-        raise HTTPException(503, "Payment gateway not available")
+        raise HTTPException(503, detail={"error": "Payment gateway starting up. Please retry in 10 seconds.", "code": "GATEWAY_INIT"})
     explorer = (
         f"https://{'explore' if settings.fetch_use_mainnet else 'explore-dorado'}"
         f".fetch.ai/transactions/{tx_hash}"
@@ -885,7 +924,7 @@ async def set_compliance_mode(
 @app.post("/api/v2/api-keys/rotate")
 async def rotate_api_key(sub: dict = Depends(get_subscription)):
     if not payment_gateway:
-        raise HTTPException(503, "Payment gateway not available")
+        raise HTTPException(503, detail={"error": "Payment gateway starting up. Please retry in 10 seconds.", "code": "GATEWAY_INIT"})
     tenant_sub = await payment_gateway.get_subscription(sub["tenant_id"])
     if not tenant_sub:
         raise HTTPException(404, "Subscription not found")
