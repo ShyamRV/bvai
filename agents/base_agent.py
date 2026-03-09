@@ -8,6 +8,18 @@ import asyncio
 import json
 import logging
 from abc import ABC, abstractmethod
+import re as _re
+
+def _safe_format(template: str, **kwargs) -> str:
+    """
+    Safe str.format() that won't crash on curly braces in customer data.
+    Escapes any { or } in the VALUES before formatting.
+    """
+    safe_kwargs = {
+        k: str(v).replace("{", "{{").replace("}", "}}")
+        for k, v in kwargs.items()
+    }
+    return template.format(**safe_kwargs)
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field

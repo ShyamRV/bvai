@@ -1416,33 +1416,72 @@ async def voice_gather(session_id: str, request: Request):
         try:
             from agents.base_agent import CustomerContext, ConversationTurn
 
-            # ── Retrieve or rebuild session ───────────────────────────────
-            sess     = _call_sessions.get(session_id, {})
-            # Re-query DB if session lost (e.g. Railway restart mid-call)
-            _stored = sess.get("customer")
-            if _stored:
-                customer = _stored
+            # ── Retrieve or rebuild session (BUG-3 fix) ───────────────────
+            sess = _call_sessions.get(session_id, {})
+
+            stored_customer = sess.get("customer")
+            if stored_customer and stored_customer.authenticated:
+                customer = stored_customer
             else:
-                caller_phone = sess.get("caller", "unknown")
+                # Session lost (Railway restart) — re-query DB
+                # Try to get caller phone from Twilio form fields
+                try:
+                    vg_form      = await request.form()
+                    caller_phone = vg_form.get("Caller", "") or vg_form.get("From", "") or sess.get("caller", "unknown")
+                except Exception:
+                    caller_phone = sess.get("caller", "unknown")
+
                 customer = await get_customer_from_db(caller_phone)
-            history  = sess.get("history", [])
-            current  = sess.get("agent", "customer_service")
+                # Rebuild session so subsequent turns work
+                _call_sessions[session_id] = {
+                    "history":  sess.get("history", []),
+                    "customer": customer,
+                    "agent":    sess.get("agent", "customer_service"),
+                    "caller":   caller_phone,
+                    "channel":  "voice",
+                }
+                sess = _call_sessions[session_id]
 
-            # Inject demo system suffix so LLM always knows USD + full context
-            if customer.demo_mode and not hasattr(customer, "_demo_suffix_injected"):
-                customer._demo_suffix_injected = True   # type: ignore
-                customer.demo_mode = True
+            history = sess.get("history", [])
+            current = sess.get("agent", "customer_service")
 
-            # Build orchestrator system prompt enrichment
-            extra_context = DEMO_SYSTEM_SUFFIX if customer.authenticated else ""
+            # ── Inject account data into conversation history (BUG-2 fix) ──
+            # We inject a system-role message at the START of history so
+            # EVERY agent the orchestrator routes to sees the account data.
+            # This is safer than patching SYSTEM_PROMPT which targets only
+            # the pre-routing agent.
+            if customer.authenticated and not any(
+                t.role == "system" and "ACCOUNT BALANCE" in t.content
+                for t in history
+            ):
+                from agents.base_agent import ConversationTurn, CustomerContext as _CC
+                # Build rich account brief
+                checking = customer.account_balance or 0.0
+                savings  = getattr(customer, "savings_balance", 0.0) or 0.0
+                loans_txt = ""
+                for ln in (getattr(customer, "loan_accounts", []) or []):
+                    loans_txt += (
+                        f"\n  - {ln.get('type')}: Balance ${ln.get('balance',0):,.2f} USD"
+                        f" | Monthly ${ln.get('monthly_payment',0):,.2f} USD"
+                        f" | Due {ln.get('due_date','N/A')} | Status: {ln.get('status','current')}"
+                    )
+                txns_txt = ""
+                for tx in (getattr(customer, "recent_transactions", []) or []):
+                    txns_txt += f"\n  - {tx.get('date','')}: {tx.get('desc','')} {tx.get('amount','')} USD"
 
-            # Temporarily patch the SYSTEM_PROMPT of the active agent
-            active_agent = getattr(orchestrator, "agents", {}).get(current)
-            original_prompt = None
-            if active_agent and extra_context:
-                original_prompt = getattr(active_agent, "SYSTEM_PROMPT", None)
-                if original_prompt:
-                    active_agent.SYSTEM_PROMPT = original_prompt + extra_context
+                account_brief = (
+                    f"VERIFIED CUSTOMER: {customer.full_name} | Account {customer.account_number}\n"
+                    f"CHECKING BALANCE : ${checking:,.2f} USD\n"
+                    f"SAVINGS BALANCE  : ${savings:,.2f} USD\n"
+                    f"LOANS:{loans_txt if loans_txt else ' None'}\n"
+                    f"RECENT TRANSACTIONS:{txns_txt if txns_txt else ' None'}\n"
+                    f"RULES: Answer every question using data above. "
+                    f"Do NOT ask for any further verification. "
+                    f"Do NOT say you cannot access account data. "
+                    f"Do NOT transfer to human unless customer explicitly asks. "
+                    f"All currency is US DOLLARS."
+                )
+                history.insert(0, ConversationTurn(role="system", content=account_brief))
 
             resp = await orchestrator.handle_turn(
                 user_input=user_input,
@@ -1453,15 +1492,14 @@ async def voice_gather(session_id: str, request: Request):
             )
             reply = resp.text
 
-            # Restore original prompt
-            if active_agent and original_prompt is not None:
-                active_agent.SYSTEM_PROMPT = original_prompt
-
             # Persist history for multi-turn conversation memory
             history.append(ConversationTurn(role="user",      content=user_input))
             history.append(ConversationTurn(role="assistant",  content=reply))
             if session_id in _call_sessions:
-                _call_sessions[session_id]["history"] = history[-30:]   # keep last 30 turns
+                # Keep system brief + last 20 conversational turns (BUG-10: token budget)
+                kept = [h for h in history if h.role == "system"] +                        [h for h in history if h.role != "system"][-20:]
+                _call_sessions[session_id]["history"] = kept
+                _call_sessions[session_id]["last_activity"] = datetime.now(timezone.utc).isoformat()
                 if hasattr(resp, "metadata") and resp.metadata.get("agent"):
                     _call_sessions[session_id]["agent"] = resp.metadata["agent"]
 
@@ -1513,36 +1551,72 @@ async def voice_status(request: Request):
 @app.post("/whatsapp/inbound", response_class=Response)
 async def whatsapp_inbound(request: Request):
     form        = await request.form()
-    body_text   = form.get("Body", "")
-    from_number = form.get("From", "")
-    session_id = f"wa_{from_number}"
-    reply      = "Hello! I'm BankVoiceAI. How can I help you today?"
+    body_text   = form.get("Body", "").strip()
+    from_number = form.get("From", "").strip()
+
+    # Normalise phone — strip WhatsApp prefix for DB lookup and session key
+    # Twilio sends "whatsapp:+918431439772" — we want "+918431439772"
+    clean_phone = from_number.replace("whatsapp:", "").strip()
+    session_id  = f"wa_{clean_phone}"   # consistent key regardless of prefix
+    reply       = "Hello! I'm BankVoiceAI. How can I help you today?"
     if orchestrator:
         try:
             from agents.base_agent import CustomerContext, ConversationTurn
 
-            # ── Live DB lookup for WhatsApp caller ───────────────────────
-            if session_id not in _call_sessions:
-                customer = await get_customer_from_db(from_number)
+            # ── Live DB lookup — always re-validate session (BUG-1 fix) ──────
+            sess = _call_sessions.get(session_id, {})
+
+            # Re-query DB if: new session OR session lost (Railway restart)
+            stored_customer = sess.get("customer")
+            if stored_customer and stored_customer.authenticated:
+                customer = stored_customer
+            else:
+                # Fresh DB query every new session or on reconnect
+                customer = await get_customer_from_db(clean_phone)
                 _call_sessions[session_id] = {
-                    "history":  [],
+                    "history":  sess.get("history", []),   # preserve history if any
                     "customer": customer,
-                    "agent":    "customer_service",
-                    "caller":   from_number,
+                    "agent":    sess.get("agent", "customer_service"),
+                    "caller":   clean_phone,
+                    "started":  datetime.now(timezone.utc).isoformat(),
+                    "channel":  "whatsapp",
                 }
-            customer = _call_sessions[session_id]["customer"]
+
             sess    = _call_sessions[session_id]
             history = sess.get("history", [])
             current = sess.get("agent", "customer_service")
 
-            # Inject demo context into active agent
-            extra_context = DEMO_SYSTEM_SUFFIX if customer.authenticated else ""
-            active_agent  = getattr(orchestrator, "agents", {}).get(current)
-            original_prompt = None
-            if active_agent and extra_context:
-                original_prompt = getattr(active_agent, "SYSTEM_PROMPT", None)
-                if original_prompt:
-                    active_agent.SYSTEM_PROMPT = original_prompt + extra_context
+            # ── Inject account data into history (BUG-2 fix — WhatsApp) ───
+            if customer.authenticated and not any(
+                t.role == "system" and "ACCOUNT BALANCE" in t.content
+                for t in history
+            ):
+                from agents.base_agent import ConversationTurn
+                checking = customer.account_balance or 0.0
+                savings  = getattr(customer, "savings_balance", 0.0) or 0.0
+                loans_txt = ""
+                for ln in (getattr(customer, "loan_accounts", []) or []):
+                    loans_txt += (
+                        f"\n  - {ln.get('type')}: Balance ${ln.get('balance',0):,.2f} USD"
+                        f" | Monthly ${ln.get('monthly_payment',0):,.2f} USD"
+                        f" | Due {ln.get('due_date','N/A')} | Status: {ln.get('status','current')}"
+                    )
+                txns_txt = ""
+                for tx in (getattr(customer, "recent_transactions", []) or []):
+                    txns_txt += f"\n  - {tx.get('date','')}: {tx.get('desc','')} {tx.get('amount','')} USD"
+
+                account_brief = (
+                    f"VERIFIED CUSTOMER: {customer.full_name} | Account {customer.account_number}\n"
+                    f"CHECKING BALANCE : ${checking:,.2f} USD\n"
+                    f"SAVINGS BALANCE  : ${savings:,.2f} USD\n"
+                    f"LOANS:{loans_txt if loans_txt else ' None'}\n"
+                    f"RECENT TRANSACTIONS:{txns_txt if txns_txt else ' None'}\n"
+                    f"RULES: Answer every question using data above. "
+                    f"Do NOT ask for any further verification. "
+                    f"Do NOT say you cannot access account data. "
+                    f"All currency is US DOLLARS."
+                )
+                history.insert(0, ConversationTurn(role="system", content=account_brief))
 
             resp = await orchestrator.handle_turn(
                 user_input=body_text,
@@ -1553,22 +1627,49 @@ async def whatsapp_inbound(request: Request):
             )
             reply = resp.text
 
-            if active_agent and original_prompt is not None:
-                active_agent.SYSTEM_PROMPT = original_prompt
-
             history.append(ConversationTurn(role="user",     content=body_text))
             history.append(ConversationTurn(role="assistant", content=reply))
-            _call_sessions[session_id]["history"] = history[-30:]
+            # Trim history: keep last 20 turns to stay within LLM token budget (BUG-10 fix)
+            kept_history = [h for h in history if h.role == "system"] +                            [h for h in history if h.role != "system"][-20:]
+            _call_sessions[session_id]["history"]      = kept_history
+            _call_sessions[session_id]["last_activity"] = datetime.now(timezone.utc).isoformat()
             if hasattr(resp, "metadata") and resp.metadata.get("agent"):
                 _call_sessions[session_id]["agent"] = resp.metadata["agent"]
 
+            # BUG-7: Prune stale WhatsApp sessions (>4h idle) to prevent memory leak
+            _now = datetime.now(timezone.utc)
+            stale = [
+                sid for sid, s in list(_call_sessions.items())
+                if sid.startswith("wa_") and s.get("last_activity")
+                and (_now - datetime.fromisoformat(s["last_activity"])).seconds > 14400
+            ]
+            for sid in stale:
+                _call_sessions.pop(sid, None)
+                logger.info(f"Pruned stale WhatsApp session: {sid}")
+
+            _ts = datetime.now(timezone.utc).isoformat()
+            # Log session_start on first message (RBI audit requirement)
+            if len(history) <= 2:   # just inserted our system brief + first user turn
+                _audit_log.append({
+                    "event":       "whatsapp_session_start",
+                    "session_id":  session_id,
+                    "from":        clean_phone,
+                    "customer_id": getattr(customer, "customer_id", "unknown"),
+                    "authenticated": customer.authenticated,
+                    "channel":     "whatsapp",
+                    "timestamp":   _ts,
+                })
             _audit_log.append({
-                "event":      "whatsapp_turn",
-                "session_id": session_id,
-                "from":       from_number,
-                "input":      body_text,
-                "agent":      resp.metadata.get("agent", current) if resp.metadata else current,
-                "timestamp":  datetime.now(timezone.utc).isoformat(),
+                "event":       "whatsapp_turn",
+                "session_id":  session_id,
+                "from":        clean_phone,
+                "customer_id": getattr(customer, "customer_id", "unknown"),
+                "input":       body_text,
+                "reply_len":   len(reply),
+                "agent":       resp.metadata.get("agent", current) if resp.metadata else current,
+                "authenticated": customer.authenticated,
+                "db_source":   getattr(customer, "_db_source", "demo"),
+                "timestamp":   _ts,
             })
         except Exception as e:
             logger.error(f"WhatsApp error: {e}")

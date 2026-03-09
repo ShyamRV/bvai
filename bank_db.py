@@ -76,11 +76,11 @@ CREATE TABLE IF NOT EXISTS bvai_transactions (
 
 CREATE INDEX IF NOT EXISTS idx_txn_customer ON bvai_transactions(customer_id, txn_date DESC);
 
--- ── Seed Shyamji Pandey demo data ────────────────────────────────────────────────
+-- ── Seed Shyam Reddy demo data ────────────────────────────────────────────────
 
 INSERT INTO bvai_customers (customer_id, full_name, phone, phone_alt, account_number, email)
 VALUES
-  ('CUST-001', 'Shyamji Pandey', '+918431439772', '+917893924878', '****4821', 'shyamji211105@gmail.com')
+  ('CUST-001', 'Shyam Reddy', '+918431439772', '+917893924878', '****4821', 'shyamji211105@gmail.com')
 ON CONFLICT (customer_id) DO UPDATE
   SET full_name = EXCLUDED.full_name,
       phone     = EXCLUDED.phone,
@@ -131,12 +131,18 @@ class BankDB:
             logger.warning("asyncpg missing — BankDB in offline mode")
             return
         try:
+            # SSL: required for Supabase/RDS, disabled for localhost/Railway internal
+            _use_ssl = (
+                "supabase.co" in self.dsn or
+                "amazonaws.com" in self.dsn or
+                "neon.tech" in self.dsn
+            )
             self.pool = await asyncpg.create_pool(
                 self.dsn,
                 min_size        = 2,
                 max_size        = 10,
                 command_timeout = 10,
-                ssl             = "require",   # Supabase requires SSL
+                ssl             = "require" if _use_ssl else False,
             )
             logger.info("✅ BankDB connected to Supabase")
             await self._setup_tables()

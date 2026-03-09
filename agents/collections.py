@@ -5,7 +5,7 @@ FDCPA compliant: Mini-Miranda disclosure on every call
 """
 import logging
 from typing import List
-from .base_agent import BaseAgent, CustomerContext, ConversationTurn, AgentResponse
+from .base_agent import BaseAgent, _safe_format, CustomerContext, ConversationTurn, AgentResponse
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ BANK: {bank_name}"""
         # Mini-Miranda only on very first turn AND only if not a service call
         is_first_turn = len(conversation_history) == 0
         context_str   = self.build_context_string(customer)
-        system        = self.SYSTEM_PROMPT.format(
+        system        = _safe_format(self.SYSTEM_PROMPT,
             bank_name = self.bank_name,
             context   = context_str,
         )
