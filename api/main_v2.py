@@ -1445,44 +1445,6 @@ async def voice_gather(session_id: str, request: Request):
             history = sess.get("history", [])
             current = sess.get("agent", "customer_service")
 
-            # ── Inject account data into conversation history (BUG-2 fix) ──
-            # We inject a system-role message at the START of history so
-            # EVERY agent the orchestrator routes to sees the account data.
-            # This is safer than patching SYSTEM_PROMPT which targets only
-            # the pre-routing agent.
-            if customer.authenticated and not any(
-                t.role == "system" and "ACCOUNT BALANCE" in t.content
-                for t in history
-            ):
-                from agents.base_agent import ConversationTurn, CustomerContext as _CC
-                # Build rich account brief
-                checking = customer.account_balance or 0.0
-                savings  = getattr(customer, "savings_balance", 0.0) or 0.0
-                loans_txt = ""
-                for ln in (getattr(customer, "loan_accounts", []) or []):
-                    loans_txt += (
-                        f"\n  - {ln.get('type')}: Balance ${ln.get('balance',0):,.2f} USD"
-                        f" | Monthly ${ln.get('monthly_payment',0):,.2f} USD"
-                        f" | Due {ln.get('due_date','N/A')} | Status: {ln.get('status','current')}"
-                    )
-                txns_txt = ""
-                for tx in (getattr(customer, "recent_transactions", []) or []):
-                    txns_txt += f"\n  - {tx.get('date','')}: {tx.get('desc','')} {tx.get('amount','')} USD"
-
-                account_brief = (
-                    f"VERIFIED CUSTOMER: {customer.full_name} | Account {customer.account_number}\n"
-                    f"CHECKING BALANCE : ${checking:,.2f} USD\n"
-                    f"SAVINGS BALANCE  : ${savings:,.2f} USD\n"
-                    f"LOANS:{loans_txt if loans_txt else ' None'}\n"
-                    f"RECENT TRANSACTIONS:{txns_txt if txns_txt else ' None'}\n"
-                    f"RULES: Answer every question using data above. "
-                    f"Do NOT ask for any further verification. "
-                    f"Do NOT say you cannot access account data. "
-                    f"Do NOT transfer to human unless customer explicitly asks. "
-                    f"All currency is US DOLLARS."
-                )
-                history.insert(0, ConversationTurn(role="system", content=account_brief))
-
             resp = await orchestrator.handle_turn(
                 user_input=user_input,
                 conversation_history=history,
@@ -1585,38 +1547,6 @@ async def whatsapp_inbound(request: Request):
             sess    = _call_sessions[session_id]
             history = sess.get("history", [])
             current = sess.get("agent", "customer_service")
-
-            # ── Inject account data into history (BUG-2 fix — WhatsApp) ───
-            if customer.authenticated and not any(
-                t.role == "system" and "ACCOUNT BALANCE" in t.content
-                for t in history
-            ):
-                from agents.base_agent import ConversationTurn
-                checking = customer.account_balance or 0.0
-                savings  = getattr(customer, "savings_balance", 0.0) or 0.0
-                loans_txt = ""
-                for ln in (getattr(customer, "loan_accounts", []) or []):
-                    loans_txt += (
-                        f"\n  - {ln.get('type')}: Balance ${ln.get('balance',0):,.2f} USD"
-                        f" | Monthly ${ln.get('monthly_payment',0):,.2f} USD"
-                        f" | Due {ln.get('due_date','N/A')} | Status: {ln.get('status','current')}"
-                    )
-                txns_txt = ""
-                for tx in (getattr(customer, "recent_transactions", []) or []):
-                    txns_txt += f"\n  - {tx.get('date','')}: {tx.get('desc','')} {tx.get('amount','')} USD"
-
-                account_brief = (
-                    f"VERIFIED CUSTOMER: {customer.full_name} | Account {customer.account_number}\n"
-                    f"CHECKING BALANCE : ${checking:,.2f} USD\n"
-                    f"SAVINGS BALANCE  : ${savings:,.2f} USD\n"
-                    f"LOANS:{loans_txt if loans_txt else ' None'}\n"
-                    f"RECENT TRANSACTIONS:{txns_txt if txns_txt else ' None'}\n"
-                    f"RULES: Answer every question using data above. "
-                    f"Do NOT ask for any further verification. "
-                    f"Do NOT say you cannot access account data. "
-                    f"All currency is US DOLLARS."
-                )
-                history.insert(0, ConversationTurn(role="system", content=account_brief))
 
             resp = await orchestrator.handle_turn(
                 user_input=body_text,

@@ -154,13 +154,22 @@ class BaseAgent(ABC):
         """Call ASI:ONE LLM (Fetch.ai's free-tier model) with retry logic.
         Free tier: 100K tokens/day at https://asi1.ai
         """
+        # ── Sanitise messages ────────────────────────────────────────────────
+        # ASI1/OpenAI only allow ONE system message at position 0.
+        # Strip any system-role turns from history (they were injected incorrectly).
+        # Only keep user and assistant roles in the messages array.
+        clean_messages = [
+            m for m in messages
+            if m.get("role") in ("user", "assistant")
+        ]
+
         headers = {
             "Authorization": f"Bearer {self.asi_one_api_key}",
             "Content-Type": "application/json",
         }
         payload = {
             "model": self.asi_one_model,   # "asi1-mini" — free tier
-            "messages": [{"role": "system", "content": system_prompt}] + messages,
+            "messages": [{"role": "system", "content": system_prompt}] + clean_messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False,
@@ -203,9 +212,13 @@ class BaseAgent(ABC):
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=openai_key)
             try:
+                clean_messages_oai = [
+                    m for m in messages
+                    if m.get("role") in ("user", "assistant")
+                ]
                 resp = await client.chat.completions.create(
                     model="gpt-4o-mini",
-                    messages=[{"role": "system", "content": system_prompt}] + messages,
+                    messages=[{"role": "system", "content": system_prompt}] + clean_messages_oai,
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )

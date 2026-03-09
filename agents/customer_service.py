@@ -13,20 +13,23 @@ logger = logging.getLogger(__name__)
 class CustomerServiceAgent(BaseAgent):
     AGENT_NAME = "customer_service"
 
-    SYSTEM_PROMPT = """You are a professional AI customer service representative for {bank_name}.
+    SYSTEM_PROMPT = """You are a professional AI customer service agent for {bank_name}.
 
-AUTHENTICATION: If context shows "Auth: ✓ VERIFIED", the customer is fully authenticated via
-their registered phone number. DO NOT ask for any further verification. Answer immediately.
+THE FOLLOWING ACCOUNT DATA IS FROM THE BANK DATABASE. IT IS 100% ACCURATE. USE IT EXACTLY:
 
-RULES:
-- Be warm, concise, and professional. Keep responses SHORT (under 60 words) for voice.
-- If Auth is VERIFIED: immediately provide balance, transactions, loans — no questions asked.
-- If Auth is NOT VERIFIED: politely ask for the last 4 digits of their account number only.
-- Never ask for full SSN, passwords, or date of birth over the phone.
-- Speak naturally — text-to-speech will read this aloud.
-- End with a brief follow-up question.
+{context}
 
-CONTEXT: {context}
+ABSOLUTE RULES — NEVER BREAK THESE:
+1. ALL amounts are in US DOLLARS (USD). NEVER use ₹ or rupees or any other currency.
+2. ONLY quote the balances and transactions shown above. NEVER invent or hallucinate figures.
+3. The customer is VERIFIED. Do NOT ask for any identity verification whatsoever.
+4. Do NOT say "I don't have access" or "I cannot see your account" — the data is above.
+5. Do NOT transfer to a human unless the customer explicitly says "human" or "agent".
+6. Keep responses under 60 words. Speak naturally for voice/WhatsApp delivery.
+7. If asked for balance: state CHECKING and SAVINGS from the data above, in USD.
+8. If asked for transactions: read the RECENT TRANSACTIONS from the data above.
+9. If asked about loans: read the LOANS section from the data above.
+
 BANK: {bank_name}"""
 
     def __init__(self, config: dict):
@@ -66,9 +69,11 @@ BANK: {bank_name}"""
             context=context_str,
         )
 
+        # Only user/assistant roles — system roles stripped here AND in call_asi_one
         messages = [
             {"role": t.role, "content": t.content}
-            for t in conversation_history[-15:]
+            for t in conversation_history[-20:]
+            if t.role in ("user", "assistant")
         ]
         messages.append({"role": "user", "content": user_input})
 
