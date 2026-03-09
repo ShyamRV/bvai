@@ -1,25 +1,11 @@
 """
-BankVoiceAI — Base Agent Foundation (Updated Feb 2026)
+BankVoiceAI — Base Agent Foundation
 All agents inherit from this class.
 Uses: Fetch.ai uAgents 0.14.x + ASI:ONE free tier LLM
 """
 
-import asyncio
-import json
 import logging
 from abc import ABC, abstractmethod
-import re as _re
-
-def _safe_format(template: str, **kwargs) -> str:
-    """
-    Safe str.format() that won't crash on curly braces in customer data.
-    Escapes any { or } in the VALUES before formatting.
-    """
-    safe_kwargs = {
-        k: str(v).replace("{", "{{").replace("}", "}}")
-        for k, v in kwargs.items()
-    }
-    return template.format(**safe_kwargs)
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
@@ -35,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ConversationTurn:
-    role: str          # "user" | "assistant"
+    role: str          # "user" | "assistant" only
     content: str
     timestamp: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
@@ -45,76 +31,70 @@ class ConversationTurn:
 
 @dataclass
 class CustomerContext:
-    """Enriched customer context from bank systems (or demo mode)."""
-    customer_id: Optional[str] = None
-    account_number: Optional[str] = None
-    full_name: Optional[str] = None
-    phone: Optional[str] = None
-    language: str = "en-US"
-    authenticated: bool = False
-    account_balance: Optional[float] = None
-    loan_accounts: List[Dict] = field(default_factory=list)
-    recent_transactions: List[Dict] = field(default_factory=list)
-    fraud_flags: List[str] = field(default_factory=list)
-    consent_recorded: bool = False
-    call_recording_consent: bool = False
-    demo_mode: bool = True
+    """Enriched customer context populated from Supabase live DB."""
+    customer_id:            Optional[str]   = None
+    account_number:         Optional[str]   = None
+    full_name:              Optional[str]   = None
+    phone:                  Optional[str]   = None
+    language:               str             = "en-US"
+    authenticated:          bool            = False
+    account_balance:        Optional[float] = None   # checking USD
+    savings_balance:        Optional[float] = None   # savings USD
+    loan_accounts:          List[Dict]      = field(default_factory=list)
+    recent_transactions:    List[Dict]      = field(default_factory=list)
+    fraud_flags:            List[str]       = field(default_factory=list)
+    consent_recorded:       bool            = False
+    call_recording_consent: bool            = False
+    demo_mode:              bool            = True
 
 
 class AgentResponse:
     def __init__(
         self,
-        text: str,
-        action: Optional[str] = None,
+        text:     str,
+        action:   Optional[str] = None,
         escalate: bool = False,
         end_call: bool = False,
-        twiml: Optional[str] = None,
+        twiml:    Optional[str] = None,
         metadata: Dict = None,
     ):
-        self.text = text
-        self.action = action       # e.g. "log_promise_to_pay", "flag_fraud"
-        self.escalate = escalate   # Hand off to human agent
-        self.end_call = end_call   # Hang up cleanly
-        self.twiml = twiml         # Raw TwiML override (optional)
+        self.text     = text
+        self.action   = action
+        self.escalate = escalate
+        self.end_call = end_call
+        self.twiml    = twiml
         self.metadata = metadata or {}
 
 
 # ─── Fetch.ai uAgent Message Models ───────────────────────────────────────────
 
 class TurnRequest(Model):
-    session_id: str
-    user_input: str
-    agent_name: str
-    customer_json: str  # JSON-serialized CustomerContext
-
+    session_id:    str
+    user_input:    str
+    agent_name:    str
+    customer_json: str
 
 class TurnResponse(Model):
-    session_id: str
-    text: str
-    escalate: bool
-    end_call: bool
-    metadata_json: str  # JSON-serialized metadata dict
+    session_id:    str
+    text:          str
+    escalate:      bool
+    end_call:      bool
+    metadata_json: str
 
 
 # ─── Base Agent ───────────────────────────────────────────────────────────────
 
 class BaseAgent(ABC):
-    """
-    Foundation class for all BankVoiceAI agents.
-    Handles: ASI:ONE LLM calls, compliance triggers,
-    sentiment escalation, and context management.
-    """
 
-    AGENT_NAME: str = "base"
+    AGENT_NAME:    str = "base"
     SYSTEM_PROMPT: str = ""
-    MAX_TURNS: int = 50
+    MAX_TURNS:     int = 50
 
-    # US Compliance Disclosures (CFPB / FDCPA / TCPA)
     REQUIRED_DISCLOSURES = {
         "call_start": (
             "This call may be recorded for quality and compliance purposes. "
             "You are speaking with an AI assistant from {bank_name}. "
-            "You may request a human agent at any time by saying 'agent' or pressing zero."
+            "You may request a human agent at any time by saying agent or pressing zero."
         ),
         "debt_collection": (
             "This is an attempt to collect a debt. "
@@ -123,7 +103,7 @@ class BaseAgent(ABC):
         ),
         "marketing": (
             "The following is a marketing message from {bank_name}. "
-            "You may opt out at any time by saying 'stop' or pressing nine."
+            "You may opt out at any time by saying stop or pressing nine."
         ),
     }
 
@@ -131,226 +111,195 @@ class BaseAgent(ABC):
         self,
         asi_one_api_key: str,
         asi_one_api_url: str,
-        bank_name: str = "your bank",
-        asi_one_model: str = "asi1-mini",
+        bank_name:       str = "your bank",
+        asi_one_model:   str = "asi1-mini",
     ):
         self.asi_one_api_key = asi_one_api_key
         self.asi_one_api_url = asi_one_api_url
-        self.bank_name = bank_name
-        self.asi_one_model = asi_one_model
-        self.http_client = httpx.AsyncClient(timeout=30.0)
+        self.bank_name       = bank_name
+        self.asi_one_model   = asi_one_model
+        self.http_client     = httpx.AsyncClient(timeout=30.0)
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-    )
+    # ── LLM call ──────────────────────────────────────────────────────────────
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def call_asi_one(
         self,
-        messages: List[Dict[str, str]],
+        messages:      List[Dict[str, str]],
         system_prompt: str,
-        temperature: float = 0.3,
-        max_tokens: int = 512,
+        temperature:   float = 0.3,
+        max_tokens:    int   = 512,
     ) -> str:
-        """Call ASI:ONE LLM (Fetch.ai's free-tier model) with retry logic.
-        Free tier: 100K tokens/day at https://asi1.ai
         """
-        # ── Sanitise messages ────────────────────────────────────────────────
-        # ASI1/OpenAI only allow ONE system message at position 0.
-        # Strip any system-role turns from history (they were injected incorrectly).
-        # Only keep user and assistant roles in the messages array.
-        clean_messages = [
-            m for m in messages
-            if m.get("role") in ("user", "assistant")
-        ]
-
-        headers = {
-            "Authorization": f"Bearer {self.asi_one_api_key}",
-            "Content-Type": "application/json",
-        }
+        Call ASI:ONE (Fetch.ai free LLM).
+        Rules:
+        - system_prompt is ALWAYS the single system message at position 0
+        - messages array must only contain user/assistant roles
+        - Any other roles are stripped to prevent API errors
+        """
+        clean = [m for m in messages if m.get("role") in ("user", "assistant")]
         payload = {
-            "model": self.asi_one_model,   # "asi1-mini" — free tier
-            "messages": [{"role": "system", "content": system_prompt}] + clean_messages,
+            "model":       self.asi_one_model,
+            "messages":    [{"role": "system", "content": system_prompt}] + clean,
             "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": False,
+            "max_tokens":  max_tokens,
+            "stream":      False,
         }
         try:
-            response = await self.http_client.post(
+            r = await self.http_client.post(
                 f"{self.asi_one_api_url}/chat/completions",
-                headers=headers,
+                headers={
+                    "Authorization": f"Bearer {self.asi_one_api_key}",
+                    "Content-Type":  "application/json",
+                },
                 json=payload,
             )
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"]
         except httpx.HTTPStatusError as e:
-            logger.error(f"ASI:ONE error {e.response.status_code}: {e.response.text}")
+            logger.error(f"ASI:ONE {e.response.status_code}: {e.response.text}")
             raise
         except Exception as e:
-            logger.error(f"ASI:ONE call failed: {e}")
+            logger.error(f"ASI:ONE failed: {e}")
             raise
 
     async def call_llm_with_fallback(
         self,
-        messages: List[Dict[str, str]],
+        messages:      List[Dict[str, str]],
         system_prompt: str,
-        temperature: float = 0.3,
-        max_tokens: int = 512,
+        temperature:   float = 0.3,
+        max_tokens:    int   = 512,
     ) -> str:
-        """Try ASI:ONE first, fall back to OpenAI GPT-4o-mini if needed."""
+        """ASI:ONE with OpenAI GPT-4o-mini fallback."""
         try:
-            return await self.call_asi_one(
-                messages, system_prompt, temperature, max_tokens
-            )
+            return await self.call_asi_one(messages, system_prompt, temperature, max_tokens)
         except Exception as e:
-            logger.warning(f"ASI:ONE unavailable, using OpenAI fallback: {e}")
+            logger.warning(f"ASI:ONE unavailable ({e}), trying OpenAI fallback")
             import os
-            openai_key = os.getenv("OPENAI_API_KEY", "")
-            if not openai_key:
+            key = os.getenv("OPENAI_API_KEY", "")
+            if not key:
                 return "I'm experiencing a technical issue. Let me transfer you to a representative."
-
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=openai_key)
             try:
-                clean_messages_oai = [
-                    m for m in messages
-                    if m.get("role") in ("user", "assistant")
-                ]
-                resp = await client.chat.completions.create(
+                from openai import AsyncOpenAI
+                clean = [m for m in messages if m.get("role") in ("user", "assistant")]
+                resp  = await AsyncOpenAI(api_key=key).chat.completions.create(
                     model="gpt-4o-mini",
-                    messages=[{"role": "system", "content": system_prompt}] + clean_messages_oai,
+                    messages=[{"role": "system", "content": system_prompt}] + clean,
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
                 return resp.choices[0].message.content
-            except Exception as fallback_err:
-                logger.error(f"OpenAI fallback also failed: {fallback_err}")
+            except Exception as fe:
+                logger.error(f"OpenAI fallback failed: {fe}")
                 return "I'm experiencing a technical issue. Let me connect you with a representative."
 
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
     def detect_escalation_request(self, text: str) -> bool:
-        """Detect human-agent request (CFPB compliance required)."""
         phrases = [
             "human", "agent", "representative", "person", "supervisor",
             "manager", "real person", "talk to someone", "speak to someone",
             "transfer me", "operator", "live agent", "press 0", "zero",
             "speak with", "talk with", "connect me",
         ]
-        text_lower = text.lower()
-        return any(p in text_lower for p in phrases)
+        return any(p in text.lower() for p in phrases)
 
     def analyze_sentiment(self, text: str) -> str:
-        """Rule-based sentiment for auto-escalation."""
         negative = [
             "angry", "furious", "terrible", "ridiculous", "lawsuit",
             "attorney", "lawyer", "complaint", "unacceptable", "incompetent",
             "useless", "disgusting", "fraud", "scam", "stealing",
         ]
-        text_lower = text.lower()
-        count = sum(1 for w in negative if w in text_lower)
-        if count >= 2:
-            return "very_negative"
-        elif count == 1:
-            return "negative"
-        return "neutral"
+        count = sum(1 for w in negative if w in text.lower())
+        return "very_negative" if count >= 2 else ("negative" if count == 1 else "neutral")
 
-    def build_context_string(self, customer: CustomerContext) -> str:
+    def build_account_brief(self, customer: CustomerContext) -> str:
         """
-        Build a full plain-English account brief for the LLM system prompt.
-        Every field the LLM might need is spelled out explicitly so it never
-        has to say 'I don't have that information'.
+        Build a complete account brief injected into the LLM system prompt.
+        Contains ALL account data in USD. LLM has zero reason to invent anything.
         """
-        lines = []
+        if not customer.authenticated:
+            return (
+                "AUTHENTICATION STATUS: NOT VERIFIED.\n"
+                "Ask ONLY for the last 4 digits of the customer account number.\n"
+                "Do NOT disclose any balance, transaction, or loan data."
+            )
 
-        # ── Auth status ───────────────────────────────────────────────────────
-        if customer.authenticated:
-            lines.append("=== CUSTOMER ACCOUNT DATA (VERIFIED — USE THIS DATA DIRECTLY) ===")
+        checking = customer.account_balance or 0.0
+        savings  = customer.savings_balance  or 0.0
+
+        lines = [
+            "=" * 56,
+            "LIVE BANK DATABASE — VERIFIED CUSTOMER ACCOUNT DATA",
+            "=" * 56,
+            f"Customer Name  : {customer.full_name}",
+            f"Account        : {customer.account_number}",
+            f"Auth Status    : VERIFIED via registered phone number",
+            "",
+            "ACCOUNT BALANCES — ALL AMOUNTS IN US DOLLARS (USD):",
+            f"  Checking Account : ${checking:,.2f}",
+            f"  Savings Account  : ${savings:,.2f}",
+            f"  Total Deposits   : ${checking + savings:,.2f}",
+            "",
+        ]
+
+        loans = customer.loan_accounts or []
+        if loans:
+            lines.append("ACTIVE LOANS:")
+            for ln in loans:
+                lines.append(
+                    f"  {ln.get('type', 'Loan')}: "
+                    f"Balance ${ln.get('balance', 0):,.2f} | "
+                    f"Monthly ${ln.get('monthly_payment', 0):,.2f} | "
+                    f"Due: {ln.get('due_date', 'N/A')} | "
+                    f"Status: {ln.get('status', 'current')}"
+                )
             lines.append("")
-            lines.append(f"Customer Name    : {customer.full_name or 'N/A'}")
-            lines.append(f"Account Number   : {customer.account_number or 'N/A'}")
-            lines.append(f"Phone            : {customer.phone or 'N/A'}")
-            lines.append(f"Auth Status      : FULLY VERIFIED via registered phone number")
-            lines.append(f"Source           : {getattr(customer, '_db_source', 'demo_registry')}")
+
+        txns = customer.recent_transactions or []
+        if txns:
+            lines.append("RECENT TRANSACTIONS:")
+            for t in txns:
+                lines.append(
+                    f"  {t.get('date', '')}: {t.get('desc', '')} "
+                    f"{t.get('amount', '')} USD"
+                )
             lines.append("")
 
-            # ── Balances ──────────────────────────────────────────────────────
-            lines.append("--- ACCOUNT BALANCES (ALL IN US DOLLARS) ---")
-            checking = customer.account_balance or 0.0
-            savings  = getattr(customer, "savings_balance", None)
-            lines.append(f"Checking Account : ${checking:,.2f} USD")
-            if savings is not None:
-                lines.append(f"Savings Account  : ${savings:,.2f} USD")
-            lines.append(f"Total Deposits   : ${(checking + (savings or 0.0)):,.2f} USD")
+        if customer.fraud_flags:
+            lines.append(f"FRAUD ALERTS: {', '.join(customer.fraud_flags)}")
             lines.append("")
 
-            # ── Loans ─────────────────────────────────────────────────────────
-            loans = getattr(customer, "loan_accounts", []) or []
-            if loans:
-                lines.append("--- ACTIVE LOANS ---")
-                for loan in loans:
-                    lines.append(
-                        f"  {loan.get('type','Loan')}: "
-                        f"Balance ${loan.get('balance', 0):,.2f} USD | "
-                        f"Monthly payment ${loan.get('monthly_payment', 0):,.2f} USD | "
-                        f"Next due: {loan.get('due_date', 'N/A')} | "
-                        f"Status: {loan.get('status', 'current')}"
-                    )
-                lines.append("")
-
-            # ── Recent transactions ───────────────────────────────────────────
-            txns = getattr(customer, "recent_transactions", []) or []
-            if txns:
-                lines.append("--- RECENT TRANSACTIONS ---")
-                for t in txns:
-                    lines.append(
-                        f"  {t.get('date','')}: {t.get('desc','')} "
-                        f"{t.get('amount','')} USD"
-                    )
-                lines.append("")
-
-            # ── Fraud flags ───────────────────────────────────────────────────
-            fraud = getattr(customer, "fraud_flags", []) or []
-            if fraud:
-                lines.append(f"FRAUD ALERTS: {', '.join(fraud)}")
-                lines.append("")
-
-            lines.append("=== INSTRUCTIONS ===")
-            lines.append("- Answer every balance/loan/transaction question using the data above.")
-            lines.append("- Do NOT ask for any verification. Customer is already authenticated.")
-            lines.append("- Do NOT say 'I don't have access' or 'I cannot see your account'.")
-            lines.append("- Do NOT transfer to a human unless the customer explicitly requests it.")
-            lines.append("- All currency is US DOLLARS. Say 'dollars', never 'FET' or other currencies.")
-            lines.append("=== END OF ACCOUNT DATA ===")
-
-        else:
-            lines.append("=== UNVERIFIED CALLER ===")
-            lines.append("Auth Status: NOT VERIFIED")
-            lines.append("Action: Ask ONLY for the last 4 digits of their account number.")
-            lines.append("Do NOT ask for full SSN, date of birth, or full account number.")
-            lines.append("Do NOT disclose any account balances or transaction data.")
-
-        lines.append(f"\nLanguage: {getattr(customer, 'language', 'en-US')}")
+        lines += [
+            "=" * 56,
+            "RULES — FOLLOW EXACTLY, NO EXCEPTIONS:",
+            "R1: Use ONLY the data above. NEVER invent balances or transactions.",
+            "R2: Currency is US DOLLARS only. NEVER say rupees, INR, or use the symbol.",
+            "R3: Customer is VERIFIED. Do NOT ask for any identity check.",
+            "R4: Do NOT say you cannot access the account — the data is above.",
+            "R5: Do NOT escalate to human unless customer explicitly requests it.",
+            "R6: Keep response under 60 words for voice. Be direct and clear.",
+            "=" * 56,
+        ]
         return "\n".join(lines)
+
+    # Alias so all subclasses work without changes
+    def build_context_string(self, customer: CustomerContext) -> str:
+        return self.build_account_brief(customer)
 
     @abstractmethod
     async def handle_turn(
         self,
-        user_input: str,
+        user_input:           str,
         conversation_history: List[ConversationTurn],
-        customer: CustomerContext,
-        session_id: str,
+        customer:             CustomerContext,
+        session_id:           str,
     ) -> AgentResponse:
-        """Process one conversation turn. Must be implemented by subclasses."""
         pass
 
     async def get_opening_message(self, customer: CustomerContext) -> str:
-        disclosure = self.REQUIRED_DISCLOSURES["call_start"].format(
-            bank_name=self.bank_name
-        )
-        greeting = (
-            f"Hello, {customer.full_name.split()[0]}. "
-            if customer.full_name
-            else "Hello. "
-        )
+        disclosure = self.REQUIRED_DISCLOSURES["call_start"].format(bank_name=self.bank_name)
+        greeting   = f"Hello {customer.full_name.split()[0]}, " if customer.full_name else ""
         return f"{disclosure} {greeting}How can I help you today?"
 
     async def close(self):

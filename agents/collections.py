@@ -5,7 +5,7 @@ FDCPA compliant: Mini-Miranda disclosure on every call
 """
 import logging
 from typing import List
-from .base_agent import BaseAgent, _safe_format, CustomerContext, ConversationTurn, AgentResponse
+from .base_agent import BaseAgent, CustomerContext, ConversationTurn, AgentResponse
 
 logger = logging.getLogger(__name__)
 
@@ -15,11 +15,8 @@ class CollectionsAgent(BaseAgent):
 
     SYSTEM_PROMPT = """You are a compliant debt collection AI agent for {bank_name}.
 
-AUTHENTICATION: If context shows "Auth: ✓ VERIFIED", caller is authenticated via registered
-phone number. Do NOT ask for SSN or account verification. Proceed directly to helping them.
-
 FDCPA COMPLIANCE (MANDATORY):
-- You MUST deliver the Mini-Miranda disclosure at the start of this collections call.
+- You MUST have delivered the Mini-Miranda disclosure at the start of this collections call.
 - NEVER threaten illegal actions (jail, criminal charges for non-payment).
 - NEVER call before 8am or after 9pm (system enforces this).
 - NEVER discuss the debt with third parties.
@@ -27,13 +24,12 @@ FDCPA COMPLIANCE (MANDATORY):
 - If customer disputes the debt, note it and escalate to human agent.
 
 GOALS:
-1. If VERIFIED: skip identity check — go straight to payment options.
-   If NOT VERIFIED: ask for last 4 of account number only (not SSN).
+1. Confirm identity (ask last 4 of SSN or account number) before discussing specifics.
 2. Offer payment options: full payment, payment plan, hardship program.
 3. Arrange a promise-to-pay if customer agrees.
 4. Keep responses SHORT (under 60 words) — this is voice.
 
-CONTEXT: {context}
+{account_brief}
 BANK: {bank_name}"""
 
     MINI_MIRANDA = (
@@ -86,23 +82,21 @@ BANK: {bank_name}"""
                 escalate=True,
             )
 
-        # Mini-Miranda only on very first turn AND only if not a service call
-        is_first_turn = len(conversation_history) == 0
-        context_str   = self.build_context_string(customer)
-        system        = _safe_format(self.SYSTEM_PROMPT,
-            bank_name = self.bank_name,
-            context   = context_str,
+        # First turn — must deliver Mini-Miranda
+        is_first_turn = len(conversation_history) <= 1
+        account_brief = self.build_account_brief(customer)
+        system = self.SYSTEM_PROMPT.format(
+            bank_name=self.bank_name,
+            account_brief=account_brief,
         )
 
+        # Only user/assistant roles in messages — system role not allowed mid-array
         messages = [
             {"role": t.role, "content": t.content}
-            for t in conversation_history[-15:]
+            for t in conversation_history[-20:]
+            if t.role in ("user", "assistant")
         ]
-        # Only inject Mini-Miranda on the very first turn for collections calls
-        # For verified callers asking about balances/transactions — skip it
-        balance_words = ["balance","transaction","history","statement","loan","payment","account"]
-        is_collections_call = not any(w in user_input.lower() for w in balance_words)
-        if is_first_turn and is_collections_call:
+        if is_first_turn:
             messages.insert(0, {
                 "role": "system",
                 "content": f"IMPORTANT: Begin your response with the Mini-Miranda disclosure: '{self.get_mini_miranda()}'"

@@ -22,7 +22,7 @@ RULES:
 - For formal complaints, always provide a reference number (use session_id).
 - Responses must be SHORT (under 60 words) — this is voice.
 
-CONTEXT: {context}
+{account_brief}
 BANK: {bank_name}"""
 
     def __init__(self, config: dict):
@@ -46,13 +46,16 @@ BANK: {bank_name}"""
                 escalate=True,
             )
 
-        context_str = self.build_context_string(customer)
+        account_brief = self.build_account_brief(customer)
         system = self.SYSTEM_PROMPT.format(
-            bank_name=self.bank_name, context=context_str
+            bank_name=self.bank_name,
+            account_brief=account_brief,
         )
+        # Only user/assistant roles in messages — system role not allowed mid-array
         messages = [
             {"role": t.role, "content": t.content}
-            for t in conversation_history[-10:]
+            for t in conversation_history[-20:]
+            if t.role in ("user", "assistant")
         ]
         messages.append({"role": "user", "content": user_input})
 

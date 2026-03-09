@@ -30,7 +30,7 @@ PRODUCTS YOU CAN DISCUSS:
 - Business checking (no transaction fees, free bill pay)
 - Credit cards (1.5% cash back, no annual fee, 0% intro APR 15 months)
 
-CONTEXT: {context}
+{account_brief}
 BANK: {bank_name}"""
 
     def __init__(self, config: dict):
@@ -65,13 +65,16 @@ BANK: {bank_name}"""
                 metadata={"agent": self.AGENT_NAME, "action": "tcpa_opt_out"},
             )
 
-        context_str = self.build_context_string(customer)
+        account_brief = self.build_account_brief(customer)
         system = self.SYSTEM_PROMPT.format(
-            bank_name=self.bank_name, context=context_str
+            bank_name=self.bank_name,
+            account_brief=account_brief,
         )
+        # Only user/assistant roles in messages — system role not allowed mid-array
         messages = [
             {"role": t.role, "content": t.content}
-            for t in conversation_history[-15:]
+            for t in conversation_history[-20:]
+            if t.role in ("user", "assistant")
         ]
         messages.append({"role": "user", "content": user_input})
 
