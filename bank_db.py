@@ -131,23 +131,29 @@ class BankDB:
             logger.warning("asyncpg missing — BankDB in offline mode")
             return
         try:
-            # SSL: required for Supabase/RDS, disabled for localhost/Railway internal
             _use_ssl = (
                 "supabase.co" in self.dsn or
                 "amazonaws.com" in self.dsn or
                 "neon.tech" in self.dsn
             )
+            # Use ssl context object — works across all asyncpg versions with Supabase
+            import ssl as _ssl
+            ssl_ctx = None
+            if _use_ssl:
+                ssl_ctx = _ssl.create_default_context()
+                ssl_ctx.check_hostname = False
+                ssl_ctx.verify_mode    = _ssl.CERT_NONE
             self.pool = await asyncpg.create_pool(
                 self.dsn,
-                min_size        = 2,
-                max_size        = 10,
-                command_timeout = 10,
-                ssl             = "require" if _use_ssl else False,
+                min_size        = 1,
+                max_size        = 5,
+                command_timeout = 15,
+                ssl             = ssl_ctx if _use_ssl else False,
             )
             logger.info("✅ BankDB connected to Supabase")
             await self._setup_tables()
         except Exception as e:
-            logger.warning(f"BankDB connect failed (demo mode): {e}")
+            logger.warning(f"BankDB connect failed (using demo registry): {e}")
             self.pool = None
 
     async def _setup_tables(self):

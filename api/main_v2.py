@@ -230,7 +230,7 @@ def get_demo_customer(caller_phone: str):
                 data = DEMO_PHONE_REGISTRY[key]
                 break
     if data:
-        return CustomerContext(
+        ctx = CustomerContext(
             customer_id            = data["customer_id"],
             account_number         = data["account_number"],
             full_name              = data["full_name"],
@@ -238,6 +238,7 @@ def get_demo_customer(caller_phone: str):
             language               = data.get("language", "en-US"),
             authenticated          = data["authenticated"],
             account_balance        = data["account_balance"],
+            savings_balance        = data.get("savings_balance", 0.0),
             loan_accounts          = data.get("loan_accounts", []),
             recent_transactions    = data.get("recent_transactions", []),
             fraud_flags            = data.get("fraud_flags", []),
@@ -245,6 +246,8 @@ def get_demo_customer(caller_phone: str):
             call_recording_consent = data.get("call_recording_consent", True),
             demo_mode              = True,
         )
+        ctx._db_source = "demo_registry"  # type: ignore
+        return ctx
     return CustomerContext(phone=phone, demo_mode=True, authenticated=False)
 
 
