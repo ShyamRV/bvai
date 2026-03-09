@@ -1347,6 +1347,29 @@ async def list_db_connections(sub: dict = Depends(get_subscription)):
     }
 
 
+
+# ─── Debug endpoint — shows exactly what DB returns for a phone number ────────
+
+@app.get("/api/debug/customer/{phone}")
+async def debug_customer(phone: str, sub: dict = Depends(get_subscription)):
+    """
+    Dev/debug only — shows what CustomerContext the voice/WhatsApp handler builds.
+    Call: GET /api/debug/customer/+918431439772
+    """
+    customer = await get_customer_from_db(phone)
+    return {
+        "phone_queried":    phone,
+        "db_source":        getattr(customer, "_db_source", "demo_registry"),
+        "authenticated":    customer.authenticated,
+        "full_name":        customer.full_name,
+        "account_number":   customer.account_number,
+        "checking_usd":     customer.account_balance,
+        "savings_usd":      getattr(customer, "savings_balance", None),
+        "loans":            customer.loan_accounts,
+        "transactions":     customer.recent_transactions,
+        "bank_db_connected": bank_db.is_connected if bank_db else False,
+    }
+
 # ─── Voice Webhooks (Twilio) ──────────────────────────────────────────────────
 
 @app.post("/voice/inbound", response_class=Response)
