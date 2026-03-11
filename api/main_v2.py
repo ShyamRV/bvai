@@ -74,7 +74,7 @@ PLAN_CONFIG = {
     "pilot":      {"name": "30-Day Pilot",  "calls_per_day": 200,  "agents": ["customer_service", "fraud_detection"],                                                                         "fet": 0},
     "starter":    {"name": "Starter",       "calls_per_day": 500,  "agents": ["customer_service", "fraud_detection", "onboarding"],                                                           "fet": 250},
     "growth":     {"name": "Growth",        "calls_per_day": 2000, "agents": ["customer_service", "fraud_detection", "onboarding", "collections", "sales", "compliance"],                    "fet": 750},
-    "enterprise": {"name": "Enterprise",    "calls_per_day": -1,   "agents": ["customer_service", "fraud_detection", "onboarding", "collections", "sales", "compliance", "orchestrator"],    "fet": 2000},
+    "enterprise": {"name": "Enterprise",    "calls_per_day": -1,   "agents": ["customer_service", "fraud_detection", "onboarding", "collections", "sales", "compliance", "orchestrator"],    "fet": 5},   # DEMO — restore to 2000 after shoot
 }
 ALL_AGENTS = ["customer_service", "fraud_detection", "onboarding", "collections", "sales", "compliance", "orchestrator"]
 
